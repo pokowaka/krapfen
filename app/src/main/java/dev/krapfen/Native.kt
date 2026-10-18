@@ -27,9 +27,12 @@ object Native {
     /** Loads the Strudel bundle. Returns null on success, else an error. */
     @JvmStatic external fun jsInit(bundle: String): String?
 
-    /** Evaluates Strudel code: `{"ok":true,"cps":n}` or `{"ok":false,"error":s}`. */
-    @JvmStatic external fun jsEvaluate(code: String): String
+    /**
+     * Calls `krapfen[method](...args)` (args: JSON array), awaiting promises.
+     * Returns `{"ok":true,"value":...}` or `{"ok":false,"error":"..."}`.
+     */
+    @JvmStatic external fun jsCall(method: String, argsJson: String): String
 
-    /** Events with onsets in [begin, end) cycles, as a JSON array. */
-    @JvmStatic external fun jsQuery(begin: Double, end: Double): String
+    /** Scheduler heartbeat: runs due JS timers; call every few ms while playing. */
+    @JvmStatic external fun jsTick()
 }

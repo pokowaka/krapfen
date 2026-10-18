@@ -3217,12 +3217,12 @@ ${a.stack ?? ""}`;
       error: (...a) => hostLog(3, format(a))
     };
   } else {
-    g.console ??= { log() {
-    }, info() {
-    }, debug() {
-    }, warn() {
-    }, error() {
-    } };
+    const c = g.console ??= {};
+    const log = typeof c.log === "function" ? c.log.bind(c) : () => {
+    };
+    for (const m2 of ["log", "info", "debug", "warn", "error"]) {
+      if (typeof c[m2] !== "function") c[m2] = log;
+    }
   }
   var now = typeof g.__krapfenNow === "function" ? g.__krapfenNow : () => Date.now() / 1e3;
   g.performance ??= { now: () => now() * 1e3 };
@@ -7057,13 +7057,13 @@ ${a.stack ?? ""}`;
      *   console.log('hap scheduled', time, cps);
      * })
      */
-    onSchedule(onSchedule, dominant = true) {
+    onSchedule(onSchedule2, dominant = true) {
       return this.withHap(
         (hap) => hap.setContext({
           ...hap.context,
           onSchedule: (scheduleHap, t, cps2) => {
             hap.context.onSchedule?.(scheduleHap, t, cps2);
-            onSchedule(scheduleHap, t, cps2);
+            onSchedule2(scheduleHap, t, cps2);
           },
           // if dominantSchedule is set to true, the default output (webaudio) will be disabled
           // when using multiple triggers, you cannot flip this flag to false again!
@@ -9581,7 +9581,7 @@ ${a.stack ?? ""}`;
   var Cyclist = class {
     constructor({
       interval,
-      onSchedule,
+      onSchedule: onSchedule2,
       onTrigger,
       onToggle,
       onError,
@@ -9657,7 +9657,7 @@ ${a.stack ?? ""}`;
                 if (tickEndTime < targetTime) {
                   return;
                 }
-                onSchedule?.(hap, targetTime + this.latency, hap.value.cps ?? this.cps);
+                onSchedule2?.(hap, targetTime + this.latency, hap.value.cps ?? this.cps);
                 if (hap.value.cps !== void 0 && this.cps != hap.value.cps) {
                   cpsChanged = true;
                   this.cps = hap.value.cps;
@@ -9866,7 +9866,7 @@ ${a.stack ?? ""}`;
   // ../third_party/strudel/packages/core/neocyclist.mjs
   var import_meta = {};
   var NeoCyclist = class {
-    constructor({ onSchedule, onToggle, getTime: getTime2, onTrigger }) {
+    constructor({ onSchedule: onSchedule2, onToggle, getTime: getTime2, onTrigger }) {
       if (onTrigger) {
         throw new Error(
           "onTrigger has been dropped. use onSchedule(hap, time, cps) instead, see https://codeberg.org/uzu/strudel/pulls/2138"
@@ -9901,7 +9901,7 @@ ${a.stack ?? ""}`;
           if (hap.hasOnset()) {
             const timeUntilTrigger = cycleToSeconds(hap.whole.begin - this.cycle, this.cps);
             const targetTime = timeUntilTrigger + currentTime + this.latency;
-            onSchedule?.(hap, targetTime, this.cps);
+            onSchedule2?.(hap, targetTime, this.cps);
           }
         });
       };
@@ -9958,7 +9958,7 @@ ${a.stack ?? ""}`;
 
   // ../third_party/strudel/packages/core/repl.mjs
   function repl({
-    onSchedule,
+    onSchedule: onSchedule2,
     defaultOutput,
     onEvalError,
     beforeEval,
@@ -10001,7 +10001,7 @@ ${a.stack ?? ""}`;
       onUpdateState?.(state);
     };
     const schedulerOptions = {
-      onSchedule: getSchedule({ onSchedule }),
+      onSchedule: getSchedule({ onSchedule: onSchedule2 }),
       getTime: getTime2,
       onToggle: (started) => {
         updateState({ started });
@@ -10112,7 +10112,7 @@ ${a.stack ?? ""}`;
         setcpm: setCpm
       });
     };
-    const evaluate2 = async (code, autostart = true, shouldHush = true) => {
+    const evaluate3 = async (code, autostart = true, shouldHush = true) => {
       if (!code) {
         throw new Error("no code to evaluate");
       }
@@ -10179,12 +10179,12 @@ ${a.stack ?? ""}`;
       }
     };
     const setCode = (code) => updateState({ code });
-    return { scheduler, evaluate: evaluate2, start, stop, pause, setCps, setPattern: setPattern2, setCode, toggle, state };
+    return { scheduler, evaluate: evaluate3, start, stop, pause, setCps, setPattern: setPattern2, setCode, toggle, state };
   }
-  var getSchedule = ({ onSchedule }) => async (hap, t, cps2) => {
+  var getSchedule = ({ onSchedule: onSchedule2 }) => async (hap, t, cps2) => {
     try {
       if (!hap.context.onSchedule || !hap.context.dominantSchedule) {
-        await onSchedule(hap, t, cps2);
+        await onSchedule2(hap, t, cps2);
       }
       if (hap.context.onSchedule) {
         await hap.context.onSchedule(hap, t, cps2);
@@ -18911,12 +18911,12 @@ Please check with "npm ls @strudel/core".`
           if (this.should_remove) {
             this.remove(parent, prop, index);
           }
-          const skipped = this.should_skip;
+          const skipped2 = this.should_skip;
           const removed = this.should_remove;
           this.should_skip = _should_skip;
           this.should_remove = _should_remove;
           this.replacement = _replacement;
-          if (skipped) return node;
+          if (skipped2) return node;
           if (removed) return null;
         }
         let key;
@@ -19578,6 +19578,8 @@ Please check with "npm ls @strudel/core".`
 
   // src/krapfen.mjs
   var { repl: repl2, evalScope: evalScope2, Pattern: Pattern2, noteToMidi: noteToMidi2 } = core_exports;
+  var hostSend = typeof globalThis.__krapfenSend === "function" ? globalThis.__krapfenSend : () => true;
+  var audioTime = typeof globalThis.__krapfenAudioTime === "function" ? globalThis.__krapfenAudioTime : () => performance.now() / 1e3;
   for (const name of [
     "pianoroll",
     "punchcard",
@@ -19600,17 +19602,6 @@ Please check with "npm ls @strudel/core".`
     }
   }
   miniAllStrings();
-  var strudel = repl2({
-    transpiler,
-    getTime: () => performance.now() / 1e3,
-    // Scheduling is driven by the native host querying patterns directly;
-    // the repl's own scheduler is never started.
-    onSchedule: () => {
-    },
-    setInterval: (...a) => setInterval(...a),
-    clearInterval: (id2) => clearInterval(id2)
-  });
-  var ready = evalScope2(core_exports, mini_exports);
   function plainValue(value) {
     if (value === null || typeof value !== "object") {
       value = { note: value };
@@ -19624,14 +19615,80 @@ Please check with "npm ls @strudel/core".`
     }
     return out;
   }
-  globalThis.krapfen = {
-    async evaluate(code) {
-      await ready;
-      await strudel.evaluate(code, false);
-      if (strudel.state.evalError) {
-        throw strudel.state.evalError;
+  var renamed = {
+    sound: "s"
+  };
+  var roomsizeToDecay = (size2) => Math.min(0.97, Math.max(0.2, 0.5 + 0.045 * size2));
+  var skipped = /* @__PURE__ */ new Set(["id", "cps", "cycle", "delta", "roomsize", "size", "sz"]);
+  function doughMessage(value, time3, duration2) {
+    const parts = ["dough", "play", "time", time3.toFixed(6), "duration", duration2.toFixed(6)];
+    for (let [key, v2] of Object.entries(value)) {
+      if (skipped.has(key)) continue;
+      key = renamed[key] ?? key;
+      if (typeof v2 === "number") {
+        if (!Number.isFinite(v2)) continue;
+        parts.push(key, String(Math.round(v2 * 1e6) / 1e6));
+      } else if (typeof v2 === "string" && /^[A-Za-z0-9_.:-]+$/.test(v2)) {
+        parts.push(key, v2);
       }
-      return { cps: strudel.scheduler.cps };
+    }
+    const size2 = value.roomsize ?? value.size ?? value.sz;
+    if (typeof size2 === "number" && value.roomdecay === void 0) {
+      parts.push("roomdecay", roomsizeToDecay(size2).toFixed(3));
+    }
+    return parts.join("/");
+  }
+  var scheduled = 0;
+  var dropped = 0;
+  var minLead = Infinity;
+  var late2 = 0;
+  function onSchedule(hap, time3, cps2) {
+    const value = plainValue(hap.value);
+    if (!value.s && value.note === void 0 && value.freq === void 0) return;
+    value.s ??= "triangle";
+    const message = doughMessage(value, time3, hap.duration.valueOf() / cps2);
+    const lead = time3 - audioTime();
+    minLead = Math.min(minLead, lead);
+    if (lead < 0) late2++;
+    if (hostSend(message)) scheduled++;
+    else dropped++;
+  }
+  var strudel = repl2({
+    transpiler,
+    getTime: audioTime,
+    onSchedule,
+    setInterval: (...a) => setInterval(...a),
+    clearInterval: (id2) => clearInterval(id2)
+  });
+  var ready = evalScope2(core_exports, mini_exports);
+  async function evaluate2(code, autostart) {
+    await ready;
+    await strudel.evaluate(code, autostart);
+    if (strudel.state.evalError) {
+      throw strudel.state.evalError;
+    }
+    return { cps: strudel.scheduler.cps };
+  }
+  globalThis.krapfen = {
+    evaluate: (code) => evaluate2(code, false),
+    play: (code) => evaluate2(code, true),
+    stop() {
+      strudel.stop();
+      hostSend("dough/hush");
+      return true;
+    },
+    status() {
+      const s2 = strudel.scheduler;
+      return {
+        started: s2.started,
+        cycle: s2.now(),
+        cps: s2.cps,
+        time: audioTime(),
+        scheduled,
+        dropped,
+        late: late2,
+        minLead: Number.isFinite(minLead) ? minLead : null
+      };
     },
     query(begin2, end2) {
       const pattern2 = strudel.state.pattern;
@@ -19643,9 +19700,8 @@ Please check with "npm ls @strudel/core".`
         value: plainValue(hap.value)
       }));
     },
-    get cps() {
-      return strudel.scheduler.cps;
-    },
+    // Exposed for tests.
+    doughMessage,
     tick: runTimers
   };
 })();

@@ -18,8 +18,8 @@ import android.widget.TextView
 /**
  * Proof-of-concept screen.
  *
- * Top: Strudel code evaluated in the embedded QuickJS engine, showing the
- * resulting events. Bottom: buttons that send raw dough messages, and a live
+ * Top: Strudel code played through the embedded QuickJS engine and Strudel
+ * scheduler into dough, or listed as events. Bottom: buttons that send raw dough messages, and a live
  * peak meter showing that the native synth is producing audio.
  */
 class MainActivity : Activity() {
@@ -28,8 +28,28 @@ class MainActivity : Activity() {
     private lateinit var engine: StrudelEngine
     private lateinit var codeInput: EditText
     private lateinit var output: TextView
+    private lateinit var status: TextView
     private lateinit var meter: TextView
     private var lastLoggedPeakAt = 0L
+
+    private val statusUpdater = object : Runnable {
+        override fun run() {
+            engine.status { result ->
+                if (result is StrudelEngine.Result.Ok && result.value.started) {
+                    val st = result.value
+                    val text = "cycle %.2f · audio %.1f s · scheduled %d · dropped %d · late %d · min lead %.0f ms"
+                        .format(st.cycle, st.time, st.scheduled, st.dropped, st.late, st.minLead * 1000)
+                    handler.post { status.text = text }
+                    if (SystemClock.elapsedRealtime() - lastLoggedStatusAt > 5000) {
+                        Log.i(TAG, "status: $text")
+                        lastLoggedStatusAt = SystemClock.elapsedRealtime()
+                    }
+                }
+            }
+            handler.postDelayed(this, 250)
+        }
+    }
+    private var lastLoggedStatusAt = 0L
 
     private val meterUpdater = object : Runnable {
         override fun run() {
@@ -78,19 +98,32 @@ class MainActivity : Activity() {
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(Button(this).apply {
-            text = "Evaluate"
-            setOnClickListener { evaluate(codeInput.text.toString()) }
+            text = "▶ Play"
+            setOnClickListener { play(codeInput.text.toString()) }
         })
         row.addView(Button(this).apply {
-            text = "Load “A Conversation”"
-            setOnClickListener {
-                val code = assets.open("krapfen/examples/conversation.strudel")
-                    .bufferedReader().use { it.readText() }
-                codeInput.setText(code)
-                evaluate(code)
-            }
+            text = "■ Stop"
+            setOnClickListener { engine.stop { handler.post { status.text = "stopped" } } }
+        })
+        row.addView(Button(this).apply {
+            text = "Events"
+            setOnClickListener { showEvents(codeInput.text.toString()) }
         })
         root.addView(row)
+        root.addView(Button(this).apply {
+            text = "Load “A Conversation in Four Minutes”"
+            setOnClickListener {
+                codeInput.setText(
+                    assets.open("krapfen/examples/conversation.strudel").bufferedReader().use { it.readText() }
+                )
+            }
+        })
+
+        status = TextView(this).apply {
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+        }
+        root.addView(status)
 
         output = TextView(this).apply {
             typeface = Typeface.MONOSPACE
@@ -144,7 +177,23 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun evaluate(code: String) {
+    private fun play(code: String) {
+        val t0 = SystemClock.elapsedRealtime()
+        engine.play(code) { result ->
+            val ms = SystemClock.elapsedRealtime() - t0
+            handler.post {
+                when (result) {
+                    is StrudelEngine.Result.Ok ->
+                        output.text = "playing · evaluated in $ms ms · %.1f s/cycle".format(1 / result.value)
+                    is StrudelEngine.Result.Error -> output.text = "error: ${result.message}"
+                }
+            }
+            if (result is StrudelEngine.Result.Error) Log.w(TAG, "play error: ${result.message}")
+            else Log.i(TAG, "play: evaluated in $ms ms")
+        }
+    }
+
+    private fun showEvents(code: String) {
         output.text = "evaluating…"
         val t0 = SystemClock.elapsedRealtime()
         engine.evaluate(code) { result ->
@@ -200,11 +249,14 @@ class MainActivity : Activity() {
         val result = Native.start()
         Log.i(TAG, "Native.start() = $result")
         handler.post(meterUpdater)
+        handler.post(statusUpdater)
     }
 
     override fun onStop() {
         super.onStop()
         handler.removeCallbacks(meterUpdater)
+        handler.removeCallbacks(statusUpdater)
+        engine.stop()
         Native.stop()
     }
 

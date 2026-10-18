@@ -60,7 +60,13 @@ if (hostLog) {
     error: (...a) => hostLog(3, format(a)),
   };
 } else {
-  g.console ??= { log() {}, info() {}, debug() {}, warn() {}, error() {} };
+  // Keep an existing console (e.g. the qjs shell's) but fill in methods it
+  // may lack.
+  const c = (g.console ??= {});
+  const log = typeof c.log === 'function' ? c.log.bind(c) : () => {};
+  for (const m of ['log', 'info', 'debug', 'warn', 'error']) {
+    if (typeof c[m] !== 'function') c[m] = log;
+  }
 }
 
 // --- clock ---
