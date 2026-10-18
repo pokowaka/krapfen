@@ -306,7 +306,7 @@ Java_dev_krapfen_Native_jsInit(JNIEnv *env, jclass clazz, jstring jbundle)
     JS_SetPropertyStr(ctx, global, "__krapfenAudioTime", JS_NewCFunction(ctx, js_audio_time, "__krapfenAudioTime", 0));
     JS_SetPropertyStr(ctx, global, "__krapfenSend", JS_NewCFunction(ctx, js_send, "__krapfenSend", 1));
     JS_SetPropertyStr(ctx, global, "__krapfenRequest", JS_NewCFunction(ctx, js_request, "__krapfenRequest", 3));
-    JS_SetPropertyStr(ctx, global, "__krapfenMaxFiles", JS_NewInt32(ctx, KRAPFEN_MAX_FILES));
+    JS_SetPropertyStr(ctx, global, "__krapfenMaxFiles", JS_NewInt32(ctx, KRAPFEN_SOUND_FILE_BASE));
     JS_FreeValue(ctx, global);
 
     const char *bundle = (*env)->GetStringUTFChars(env, jbundle, NULL);

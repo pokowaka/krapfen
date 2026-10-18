@@ -15,7 +15,9 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import kotlin.random.Random
 import dev.krapfen.Krapfen
+import dev.krapfen.SoundHandle
 
 /**
  * Demo for the Krapfen library, using only its public API: edit Strudel
@@ -131,6 +133,48 @@ class MainActivity : Activity() {
             })
         }
 
+        // --- sound effects ---
+        root.addView(TextView(this).apply {
+            text = "Sound effects (generated WAVs; also playable in patterns as s(\"laser\") etc.)"
+            setPadding(0, 32, 0, 8)
+        })
+        val fxRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fxRow.addView(Button(this).apply {
+            text = "Laser"
+            setOnClickListener { Krapfen.getSound("laser")?.let { Krapfen.playSound(it, pan = Random.nextFloat()) } }
+        })
+        fxRow.addView(Button(this).apply {
+            text = "Explosion"
+            setOnClickListener { Krapfen.getSound("explosion")?.let { Krapfen.playSound(it) } }
+        })
+        fxRow.addView(Button(this).apply {
+            text = "Hum loop"
+            setOnClickListener {
+                val running = hum
+                if (running != null) {
+                    running.stop()
+                    hum = null
+                    text = "Hum loop"
+                } else {
+                    Krapfen.getSound("hum")?.let { hum = Krapfen.loopSound(it, volume = .6f) }
+                    text = "Stop hum"
+                }
+            }
+        })
+        root.addView(fxRow)
+        root.addView(TextView(this).apply { text = "Effects volume" })
+        root.addView(SeekBar(this).apply {
+            max = 100
+            progress = 100
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
+                    Krapfen.effectsVolume = value / 100f
+                }
+                override fun onStartTrackingTouch(bar: SeekBar) {}
+                override fun onStopTrackingTouch(bar: SeekBar) {}
+            })
+        })
+
         root.addView(TextView(this).apply { text = "Volume" })
         root.addView(SeekBar(this).apply {
             max = 150
@@ -165,7 +209,22 @@ class MainActivity : Activity() {
                 is Krapfen.Result.Failure -> "failed to start: ${result.message}"
             }
             Log.i(TAG, "initialize: $result in $ms ms")
+            if (result is Krapfen.Result.Success) loadSounds()
         }
+    }
+
+    private var hum: SoundHandle? = null
+
+    private fun loadSounds() {
+        Thread {
+            val t0 = SystemClock.elapsedRealtime()
+            val loaded = listOf(
+                "laser" to DemoSounds.laser(),
+                "explosion" to DemoSounds.explosion(),
+                "hum" to DemoSounds.hum(),
+            ).map { (name, data) -> Krapfen.loadSound(name, data) }
+            Log.i(TAG, "loaded $loaded in ${SystemClock.elapsedRealtime() - t0} ms")
+        }.start()
     }
 
     private fun play() {

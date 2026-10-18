@@ -1,0 +1,6 @@
+// Sound effects loaded by the app with Krapfen.loadSound() are playable
+// in patterns too (the demo loads "laser", "explosion" and "hum").
+setcpm(120/4)
+$: s("laser*4").speed("<1 1.5 .75 2>").pan(sine.slow(2)).gain(.7)
+$: s("explosion ~ ~ explosion?").gain(.8)
+$: note("<c2 eb2 g1 bb1>").s("sawtooth").lpf(600).decay(.3).sustain(0).gain(.4)

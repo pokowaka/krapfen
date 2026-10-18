@@ -42,4 +42,13 @@ $: s("nope")`);
   console.log('loaded:', JSON.stringify(__loadedUrls));
   console.log('status:', JSON.stringify(krapfen.status()));
   for (const m of __sent) console.log(m);
+
+  // Sounds loaded by the app (Krapfen.loadSound) are playable as s("name").
+  __sent.length = 0;
+  krapfen._registerSound('Laser', 600, 0.4);
+  await krapfen.play(`setcpm(60)
+$: s("laser*2").speed(2)`);
+  await pump(1200);
+  krapfen.stop();
+  console.log('app sound:', __sent.find((m) => m.includes('/file/600/')) ?? 'MISSING');
 })().catch((e) => console.log('FAILED', e.message, e.stack));

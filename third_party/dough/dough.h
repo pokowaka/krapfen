@@ -1838,6 +1838,9 @@ typedef struct
   double time;
   float repeat;
   float out;
+  // KRAPFEN PATCH: loop > 0 keeps a sample voice running past the end of
+  // the sample (it wraps to the start) instead of freeing it.
+  float loop;
 } Event;
 
 void reset_event(Event *p)
@@ -1845,6 +1848,7 @@ void reset_event(Event *p)
   p->file = -1;
   p->time = NAN;
   p->repeat = NAN;
+  p->loop = NAN; // KRAPFEN PATCH
   p->orbit = -1;
 
   p->group = -1;
@@ -1981,6 +1985,8 @@ void merge_event(const Event *source, Event *target)
 {
   // compared to reset_event, some fields are not here on purpose
   // fields like time and cmd dont make sense to merge while a voice runs..
+  if (!isnan(source->loop)) // KRAPFEN PATCH
+    target->loop = source->loop;
   if (source->orbit != -1)
     target->orbit = source->orbit;
   if (source->sound != -1)
@@ -2173,6 +2179,8 @@ void parse_event(Event *p, const char *msg)
       p->duration = atof(token);
     else if (strcmp(key, "group") == 0)
       p->group = atoi(token);
+    else if (strcmp(key, "loop") == 0) // KRAPFEN PATCH
+      p->loop = atof(token);
     else if (strcmp(key, "voices") == 0)
       p->voices = atoi(token);
     else if (strcmp(key, "freq") == 0)
@@ -2770,7 +2778,7 @@ void run_voice(Engine *engine, int i)
 
   // run source, fill v->ch
   bool wrapped = run_source(v, freq);
-  if (wrapped)
+  if (wrapped && !(v->p.loop > 0)) // KRAPFEN PATCH: looping samples wrap
     return free_voice(engine, i);
 
   // update things that are not per channel (like envelopes):

@@ -21,7 +21,7 @@ import * as core from '@strudel/core';
 import * as mini from '@strudel/mini';
 import { transpiler } from '@strudel/transpiler';
 import * as tonal from '@strudel/tonal';
-import { samples, isSample, sampleParams, preload, hostDone, sampleStats } from './samples.mjs';
+import { samples, isSample, sampleParams, preload, hostDone, sampleStats, registerSound } from './samples.mjs';
 
 const { repl, evalScope, Pattern, noteToMidi } = core;
 
@@ -194,6 +194,15 @@ export function reverbParams(size) {
 // are 1.4 dB quieter than dough's; sine and triangle match.
 const waveformGain = { sawtooth: 0.851, saw: 0.851, square: 0.851 };
 
+// Sample voices: dough plays them at pcm * gain * 0.5 (GAIN_MIX), and Krapfen's
+// output stage multiplies by 3 (calibrated on synths, whose superdough level
+// has an extra 0.3 factor). superdough plays samples at pcm * gain, so scale
+// sample gains by 2/3. Derived from both engines' code.
+const SAMPLE_GAIN = 2 / 3;
+
+// Music volume (Krapfen.musicVolume), applied to every pattern event.
+let musicVolume = 1;
+
 // Applies superdough's defaults/semantics on top of a plain hap value.
 export function toDoughParams(value) {
   const v = { ...value };
@@ -207,6 +216,7 @@ export function toDoughParams(value) {
   // superdough attenuates the centre by 3 dB. Nudge off the special case.
   if (v.pan === 0.5) v.pan = 0.500001;
   if (waveformGain[v.s]) v.gain *= waveformGain[v.s];
+  if (v.file !== undefined) v.gain *= SAMPLE_GAIN;
   // superdough's filters default to resonance 1 (helpers.mjs createFilter;
   // dB for low/highpass as in Web Audio), dough's to 0.2. Measured on a
   // sawtooth through lpf(1000): harmonics 2-8 were 1-4 dB weaker in Krapfen.
@@ -265,7 +275,12 @@ function onSchedule(hap, time, cps) {
     return;
   }
 
-  const message = doughMessage(toDoughParams(value), time, duration);
+  const params = toDoughParams(value);
+  params.gain *= musicVolume;
+  // Pattern notes form dough group 0, so stop() can silence the music without
+  // touching sound effects (Krapfen.playSound uses groups >= 1).
+  params.group = 0;
+  const message = doughMessage(params, time, duration);
   const lead = time - audioTime();
   minLead = Math.min(minLead, lead);
   if (lead < 0) late++;
@@ -320,7 +335,7 @@ globalThis.krapfen = {
   stop() {
     pausedWhilePlaying = false;
     strudel.stop();
-    hostSend('dough/hush');
+    hostSend('dough/hush_group/group/0');
     return true;
   },
 
@@ -377,6 +392,15 @@ globalThis.krapfen = {
 
   // Completion of a host request (see samples.mjs).
   _hostDone: hostDone,
+
+  // A sound loaded by the app (Krapfen.loadSound), playable as s("name").
+  _registerSound: (name, file, seconds) => (registerSound(name, file, seconds), true),
+
+  // Krapfen.musicVolume; applies to events scheduled from now on.
+  setMusicVolume(v) {
+    musicVolume = Math.max(0, Number(v) || 0);
+    return musicVolume;
+  },
 
   // Asynchronous call for methods that may wait on the host (e.g. evaluate
   // code that calls samples()): the native caller can't block for those, so

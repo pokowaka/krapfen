@@ -2,6 +2,7 @@ package dev.krapfen
 
 import android.content.Context
 import android.media.MediaCodec
+import android.media.MediaDataSource
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Log
@@ -34,9 +35,20 @@ internal class SampleLoader(context: Context) {
      * Returns the sample's length in seconds.
      */
     fun loadSample(url: String, file: Int): Double {
+        val path = download(url).path
+        return register(decode(url) { it.setDataSource(path) }, file, url)
+    }
+
+    /**
+     * Decodes encoded audio ([data]: wav, ogg, mp3, ...) and registers it with
+     * dough as file slot [file]. Returns the length in seconds.
+     */
+    fun loadSound(name: String, data: ByteArray, file: Int): Double =
+        register(decode(name) { it.setDataSource(ByteArrayDataSource(data)) }, file, name)
+
+    private fun register(decoded: Pcm, file: Int, label: String): Double {
         val targetRate = Native.sampleRate()
         check(targetRate > 0) { "audio engine not running" }
-        val decoded = decode(download(url))
         val pcm = resample(decoded, targetRate)
         // freq is the sample's reference pitch for dough's `freq`-based
         // repitching; Krapfen always sends `speed` instead, so any constant
@@ -44,8 +56,20 @@ internal class SampleLoader(context: Context) {
         check(Native.registerSample(file, pcm.data, pcm.channels, 261.63f)) {
             "dough sample memory is full"
         }
-        Log.i(TAG, "sample #$file: ${pcm.frames} frames, ${decoded.channels} ch @ ${decoded.sampleRate} Hz <- $url")
+        Log.i(TAG, "sample #$file: ${pcm.frames} frames, ${decoded.channels} ch @ ${decoded.sampleRate} Hz <- $label")
         return pcm.frames / targetRate.toDouble()
+    }
+
+    private class ByteArrayDataSource(private val data: ByteArray) : MediaDataSource() {
+        override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+            if (position >= data.size) return -1
+            val n = minOf(size.toLong(), data.size - position).toInt()
+            System.arraycopy(data, position.toInt(), buffer, offset, n)
+            return n
+        }
+
+        override fun getSize(): Long = data.size.toLong()
+        override fun close() {}
     }
 
     private fun download(url: String): File {
@@ -80,12 +104,12 @@ internal class SampleLoader(context: Context) {
     }
 
     /** Decodes any format MediaCodec supports (wav, mp3, ogg, flac, aac, ...). */
-    private fun decode(file: File): Pcm {
+    private fun decode(label: String, setSource: (MediaExtractor) -> Unit): Pcm {
         val extractor = MediaExtractor()
-        extractor.setDataSource(file.path)
+        setSource(extractor)
         val track = (0 until extractor.trackCount).firstOrNull {
             extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
-        } ?: throw IOException("no audio track in ${file.name}")
+        } ?: throw IOException("no audio track in $label")
         extractor.selectTrack(track)
         val format = extractor.getTrackFormat(track)
         val codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)

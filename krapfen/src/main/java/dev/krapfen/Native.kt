@@ -36,6 +36,12 @@ internal object Native {
     /** Stops capturing; interleaved stereo float samples, or null. */
     @JvmStatic external fun stopCapture(): FloatArray?
 
+    /** First dough file slot reserved for app sound effects. */
+    @JvmStatic external fun soundFileBase(): Int
+
+    /** Number of dough file slots. */
+    @JvmStatic external fun maxFiles(): Int
+
     /** Device sample rate (valid after [start]), or 0. */
     @JvmStatic external fun sampleRate(): Int
 

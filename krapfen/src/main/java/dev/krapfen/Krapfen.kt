@@ -3,6 +3,8 @@ package dev.krapfen
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Plays [Strudel](https://strudel.cc) patterns on Android.
@@ -19,6 +21,9 @@ import android.os.Looper
  * Krapfen.play("""note("c e g").s("sine")""") { result -> ... }
  * Krapfen.resume()  // in onStart
  * Krapfen.pause()   // in onStop
+ *
+ * val laser = Krapfen.loadSound("laser", bytes)  // wav/ogg/mp3/...
+ * Krapfen.playSound(laser, volume = .8f, pan = .3f)
  * ```
  *
  * All methods are asynchronous and may be called from any thread; calls are
@@ -89,6 +94,7 @@ public object Krapfen {
                 }
             }
         }
+        if (musicVolume != 1f) e.setMusicVolume(musicVolume)
         // Audio first, so samples can be registered at the device rate.
         e.startAudio { audio ->
             if (audio is StrudelEngine.Result.Error) deliver(onReady, Result.Failure(audio.message))
@@ -113,7 +119,7 @@ public object Krapfen {
         requireEngine().evaluate(code) { deliver(onResult, it.toPublic()) }
     }
 
-    /** Stops playback and silences all sounds. */
+    /** Stops the pattern playing and silences its notes. Sound effects keep playing. */
     public fun stop() {
         engine?.stop()
     }
@@ -161,12 +167,119 @@ public object Krapfen {
         }
     }
 
-    /** Output volume; 1.0 matches strudel.cc's loudness. */
+    /** Output volume of everything; 1.0 matches strudel.cc's loudness. */
     public var volume: Float = 1f
         set(value) {
             field = value.coerceAtLeast(0f)
             Native.setVolume(field)
         }
+
+    /**
+     * Volume of patterns ([play]), multiplied with [volume]. Applies to notes
+     * scheduled from now on (about 0.1 s ahead).
+     */
+    public var musicVolume: Float = 1f
+        set(value) {
+            field = value.coerceAtLeast(0f)
+            engine?.setMusicVolume(field)
+        }
+
+    // --- sound effects -------------------------------------------------------
+
+    /**
+     * Volume of sound effects ([playSound], [loopSound]), multiplied with
+     * [volume]. Running loops follow changes immediately.
+     */
+    public var effectsVolume: Float = 1f
+        set(value) {
+            field = value.coerceAtLeast(0f)
+            activeLoops.forEach { updateSound(it) }
+        }
+
+    // dough plays sample voices at pcm * gain * 0.5 and the output stage
+    // multiplies by 3, so gain * 2/3 plays a sound at its original level
+    // (matching how patterns play samples, see js/src/krapfen.mjs).
+    private const val SAMPLE_GAIN = 2f / 3f
+
+    private val soundsByName = ConcurrentHashMap<String, Sound>()
+    private val nextSoundSlot = AtomicInteger(0)
+    // dough voice groups identify playbacks; patterns don't use groups.
+    private val nextGroup = AtomicInteger(1)
+    private val activeLoops: MutableSet<SoundHandle> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Decodes [data] (an encoded audio file: wav, ogg, mp3, flac, aac, ...)
+     * and loads it into the audio engine as a sound effect named [name].
+     * It can then be played with [playSound]/[loopSound], and from patterns
+     * as `s("name")`.
+     *
+     * Blocks while decoding (short sounds take a few milliseconds), and until
+     * audio output has started after [initialize]. Loading a name that is
+     * already loaded returns the existing sound.
+     *
+     * @throws IllegalStateException if Krapfen isn't initialized, audio
+     *   output didn't start, or the engine's sample memory is full.
+     * @throws java.io.IOException if the data can't be decoded.
+     */
+    public fun loadSound(name: String, data: ByteArray): Sound {
+        soundsByName[name]?.let { return it }
+        val e = requireEngine()
+        check(e.awaitAudio(5_000)) { "audio output did not start" }
+        synchronized(soundsByName) {
+            soundsByName[name]?.let { return it }
+            val slot = Native.soundFileBase() + nextSoundSlot.get()
+            check(slot < Native.maxFiles()) { "too many sounds loaded (max ${Native.maxFiles() - Native.soundFileBase()})" }
+            val seconds = e.loadSound(name, data, slot)
+            nextSoundSlot.incrementAndGet()
+            val sound = Sound(name, slot, seconds)
+            soundsByName[name] = sound
+            e.registerSoundForPatterns(name, slot, seconds)
+            return sound
+        }
+    }
+
+    /** A sound loaded earlier with [loadSound], or null. */
+    public fun getSound(name: String): Sound? = soundsByName[name]
+
+    /**
+     * Plays [sound] once, now (at the next audio block). [volume] 1.0 is the
+     * sound's original level; [pan] 0 = left, 0.5 = centre, 1 = right;
+     * [speed] also changes the pitch (2 = an octave up).
+     */
+    @JvmOverloads
+    public fun playSound(sound: Sound, volume: Float = 1f, pan: Float = 0.5f, speed: Float = 1f): SoundHandle =
+        start(sound, volume, pan, speed, loop = false)
+
+    /**
+     * Plays [sound] in a seamless loop until [SoundHandle.stop] is called.
+     * Parameters as for [playSound].
+     */
+    @JvmOverloads
+    public fun loopSound(sound: Sound, volume: Float = 1f, pan: Float = 0.5f, speed: Float = 1f): SoundHandle =
+        start(sound, volume, pan, speed, loop = true).also { activeLoops.add(it) }
+
+    private fun start(sound: Sound, volume: Float, pan: Float, speed: Float, loop: Boolean): SoundHandle {
+        val handle = SoundHandle(nextGroup.getAndIncrement(), volume.coerceAtLeast(0f), pan.coerceIn(0f, 1f), loop)
+        val msg = StringBuilder("dough/play/file/").append(sound.file)
+            .append("/group/").append(handle.group)
+            .append("/speed/").append(speed)
+            .append("/gain/").append(effectiveGain(handle))
+            .append("/pan/").append(handle.pan)
+        if (loop) msg.append("/loop/1")
+        Native.evaluate(msg.toString())
+        return handle
+    }
+
+    private fun effectiveGain(handle: SoundHandle): Float = handle.volume * effectsVolume * SAMPLE_GAIN
+
+    internal fun updateSound(handle: SoundHandle) {
+        Native.evaluate("dough/update_group/group/${handle.group}/gain/${effectiveGain(handle)}/pan/${handle.pan}")
+    }
+
+    internal fun stopSound(handle: SoundHandle) {
+        activeLoops.remove(handle)
+        Native.evaluate("dough/hush_group/group/${handle.group}")
+    }
 
     /** Peak sample level (0..1) of the most recent audio block, e.g. for a meter. */
     public val outputPeak: Float get() = if (engine != null) Native.peak() else 0f

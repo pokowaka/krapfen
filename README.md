@@ -5,7 +5,8 @@
 Krapfen is an Android library (AAR) that runs Strudel code — the same code
 you write on strudel.cc — inside your app, with no browser or WebView. Use it
 for live-coded music, adaptive game soundtracks, or anything that wants
-pattern-based audio.
+pattern-based audio. It also plays sound effects, so it can be an app's whole
+audio engine.
 
 ```kotlin
 Krapfen.initialize(context) {
@@ -58,7 +59,7 @@ standard library), arm64-v8a / armeabi-v7a / x86 / x86_64.
    ```kotlin
    // app/build.gradle.kts
    dependencies {
-       implementation(files("libs/krapfen-0.1.0.aar"))
+       implementation(files("libs/krapfen-0.2.0.aar"))
    }
    ```
 
@@ -85,7 +86,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("io.github.pokowaka:krapfen:0.1.0")
+    implementation("io.github.pokowaka:krapfen:0.2.0")
 }
 ```
 
@@ -147,9 +148,12 @@ callbacks are delivered on the **main thread**.
 | `initialize(context, onReady?)` | Opens audio output and loads the Strudel engine (a few hundred ms). Safe to call again. |
 | `play(code, onResult?)` | Evaluates Strudel code and plays it. While playing, the new pattern takes over on the running clock (like re-evaluating on strudel.cc). Result: tempo in cycles/s, or the error message. |
 | `evaluate(code, onResult?)` | Evaluates without playing (e.g. to validate code). |
-| `stop()` | Stops playback and silences everything. |
+| `stop()` | Stops the pattern and silences its notes (sound effects keep playing). |
 | `resume(onResult?)` / `pause()` | Lifecycle: `resume()` in `onStart`, `pause()` in `onStop`. Counted, and the audio release is deferred 500 ms, so rotation or switching activities doesn't interrupt playback. Pair each `resume()` with a `pause()`. |
-| `volume` | Output volume, `1.0` = strudel.cc's loudness. |
+| `volume` | Overall output volume, `1.0` = strudel.cc's loudness. |
+| `musicVolume`, `effectsVolume` | Volume of patterns / of sound effects, on top of `volume`. |
+| `loadSound(name, bytes)` | Decodes an audio file (wav, ogg, mp3, flac, aac, …) into a `Sound`. Also playable in patterns as `s("name")`. |
+| `playSound(sound, volume, pan, speed)` / `loopSound(…)` | Plays a sound effect once / in a seamless loop. Returns a `SoundHandle` (`volume`, `pan`, `stop()`). |
 | `status { }` | `Status(playing, cycle, cps, audioTime, scheduledEvents, lateEvents, samples)`. |
 | `outputPeak` | Peak level (0..1) of the latest audio block, e.g. for a meter or visuals. |
 | `logListener` | Receives Strudel's console output with a `LogLevel`. |
@@ -167,6 +171,32 @@ Results are `Krapfen.Result.Success(value)` or `Krapfen.Result.Failure(message)`
   musicians can edit them like on strudel.cc and test them there.
 - **Tempo:** `setcpm(bpm / 4)` for 4 beats per cycle.
 - Check `status { it.lateEvents }` during development; it should stay 0.
+
+## Sound effects
+
+```kotlin
+// Load once (blocks briefly while decoding; do it off the main thread for
+// many sounds). Any format Android's MediaCodec decodes works.
+val laser = Krapfen.loadSound("laser", assets.open("sfx/laser.ogg").readBytes())
+val engine = Krapfen.loadSound("engine", assets.open("sfx/engine_loop.wav").readBytes())
+
+Krapfen.playSound(laser, volume = .8f, pan = .3f, speed = 1.1f)   // one-shot, starts now
+val hum = Krapfen.loopSound(engine, volume = .5f)                  // seamless loop
+hum.volume = .2f                                                   // live changes
+hum.stop()
+
+Krapfen.effectsVolume = .7f   // e.g. from your options screen
+Krapfen.musicVolume = .5f
+```
+
+- `volume` 1.0 plays a sound at its original level; `pan` 0 = left,
+  0.5 = centre (full level on both sides), 1 = right; `speed` also changes
+  pitch.
+- Effects start at the next audio block (a few milliseconds on most
+  devices) and share the mixer with the music, so they stay in time with it.
+- Loaded sounds are also available to patterns: `s("laser*4").speed(2)`.
+- Up to 512 sound effects and ~87 s of audio in total (shared with
+  pattern samples).
 
 ## Samples
 
@@ -200,7 +230,7 @@ $: s("bd*4, [~ hh]*4, ~ sd ~ sd").bank("")
 - `.pianoroll()`, `.scope()` and other visualisations are accepted and ignored.
 
 Known gaps: soundfonts (`gm_*`), `supersaw` and other superdough-only sounds
-and effects, sample `cut`/`loop`, MIDI/OSC output. The reverb matches
+and effects, sample `cut`, MIDI/OSC output. The reverb matches
 strudel.cc's length and level but not its exact tone; samples are played
 without interpolation when repitched.
 

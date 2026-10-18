@@ -22,3 +22,6 @@ dough's single engine allocation is redirected to `calloc(1, size + 64)`:
   approximation) in the biquad filter coefficients and the pan law. Measured
   against strudel.cc: a sawtooth through `lpf(1000)` had harmonics 3-5 2-4 dB
   too low; strudel.cc matches the ideal Web Audio biquad within ~0.7 dB.
+- A `loop` event parameter: sample voices with `loop` > 0 wrap to the start
+  instead of being freed when the sample ends. Used for looping sound effects
+  (Krapfen.loopSound) and Strudel's `loop` control on samples.

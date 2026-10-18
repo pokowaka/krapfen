@@ -54,6 +54,10 @@ internal class StrudelEngine(private val context: Context) {
     // Only touched on the engine thread.
     private var playing = false
 
+    // Released once the audio device has started (dough exists, so samples
+    // can be registered at the device rate).
+    private val audioReady = java.util.concurrent.CountDownLatch(1)
+
     private val thread = Thread(null, ::loop, "strudel-js", 8L * 1024 * 1024).apply {
         isDaemon = true
         start()
@@ -116,9 +120,23 @@ internal class StrudelEngine(private val context: Context) {
         onDone()
     }
 
+    /** Waits until the audio engine has started; false on timeout. */
+    fun awaitAudio(timeoutMs: Long): Boolean = audioReady.await(timeoutMs, TimeUnit.MILLISECONDS)
+
+    /** Decodes and registers a sound effect (caller's thread). Returns its length in seconds. */
+    fun loadSound(name: String, data: ByteArray, file: Int): Double = samples.loadSound(name, data, file)
+
+    /** Makes a loaded sound playable from patterns as s("name"). */
+    fun registerSoundForPatterns(name: String, file: Int, seconds: Double) = post {
+        call("_registerSound", name, file, seconds)
+    }
+
+    fun setMusicVolume(volume: Float) = post { call("setMusicVolume", volume.toDouble()) }
+
     /** Opens the audio device (idempotent). */
     fun startAudio(onDone: (Result<Unit>) -> Unit = {}) = post {
         val r = Native.start()
+        if (r == 0) audioReady.countDown()
         onDone(if (r == 0) Result.Ok(Unit) else Result.Error("audio output failed to start ($r)"))
     }
 

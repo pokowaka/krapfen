@@ -26186,6 +26186,11 @@ Please check with "npm ls @strudel/core".`
     console.log(`[samples] ${n2} sounds registered`);
   }
   var isSample = (s2) => typeof s2 === "string" && soundMap.has(s2.toLowerCase());
+  function registerSound(name3, file, seconds2) {
+    const url = `krapfen-sound:${name3}`;
+    soundMap.set(name3.toLowerCase(), [url]);
+    loaded.set(url, { file, state: "ready", seconds: seconds2 });
+  }
   function valueToMidi2(value2, fallback) {
     if (typeof value2.freq === "number") return freqToMidi(value2.freq);
     if (typeof value2.note === "string") return noteToMidi(value2.note);
@@ -26263,6 +26268,7 @@ Please check with "npm ls @strudel/core".`
     delete params.n;
     delete params.bank;
     delete params.clip;
+    if (value2.loop) params.loop = 1;
     return { params, duration: holdDuration };
   }
 
@@ -26405,6 +26411,8 @@ Please check with "npm ls @strudel/core".`
     return { decay: last[1], send: last[2] };
   }
   var waveformGain = { sawtooth: 0.851, saw: 0.851, square: 0.851 };
+  var SAMPLE_GAIN = 2 / 3;
+  var musicVolume = 1;
   function toDoughParams(value2) {
     const v2 = { ...value2 };
     if (v2.file === void 0) v2.s ??= "triangle";
@@ -26414,6 +26422,7 @@ Please check with "npm ls @strudel/core".`
     }
     if (v2.pan === 0.5) v2.pan = 0.500001;
     if (waveformGain[v2.s]) v2.gain *= waveformGain[v2.s];
+    if (v2.file !== void 0) v2.gain *= SAMPLE_GAIN;
     if (v2.cutoff !== void 0) v2.resonance ??= 1;
     if (v2.hcutoff !== void 0) v2.hresonance ??= 1;
     if (v2.bandf !== void 0) v2.bandq ??= 1;
@@ -26459,7 +26468,10 @@ Please check with "npm ls @strudel/core".`
       warnedSounds.add(value2.s);
       return;
     }
-    const message = doughMessage(toDoughParams(value2), time3, duration2);
+    const params = toDoughParams(value2);
+    params.gain *= musicVolume;
+    params.group = 0;
+    const message = doughMessage(params, time3, duration2);
     const lead = time3 - audioTime();
     minLead = Math.min(minLead, lead);
     if (lead < 0) late2++;
@@ -26502,7 +26514,7 @@ Please check with "npm ls @strudel/core".`
     stop() {
       pausedWhilePlaying = false;
       strudel.stop();
-      hostSend("dough/hush");
+      hostSend("dough/hush_group/group/0");
       return true;
     },
     // Suspends scheduling without losing the position (app in background).
@@ -26549,6 +26561,13 @@ Please check with "npm ls @strudel/core".`
     tick: runTimers,
     // Completion of a host request (see samples.mjs).
     _hostDone: hostDone,
+    // A sound loaded by the app (Krapfen.loadSound), playable as s("name").
+    _registerSound: (name3, file, seconds2) => (registerSound(name3, file, seconds2), true),
+    // Krapfen.musicVolume; applies to events scheduled from now on.
+    setMusicVolume(v2) {
+      musicVolume = Math.max(0, Number(v2) || 0);
+      return musicVolume;
+    },
     // Asynchronous call for methods that may wait on the host (e.g. evaluate
     // code that calls samples()): the native caller can't block for those, so
     // the result is reported through a "callDone" host request.

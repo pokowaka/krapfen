@@ -114,6 +114,16 @@ export async function samples(sampleMap, baseUrl = sampleMap?._base || '') {
 
 export const isSample = (s) => typeof s === 'string' && soundMap.has(s.toLowerCase());
 
+/**
+ * Makes a sound loaded by the app (Krapfen.loadSound) playable from
+ * patterns as s("name"). Its audio is already registered in dough as `file`.
+ */
+export function registerSound(name, file, seconds) {
+  const url = `krapfen-sound:${name}`;
+  soundMap.set(name.toLowerCase(), [url]);
+  loaded.set(url, { file, state: 'ready', seconds });
+}
+
 // --- sample selection (superdough util.mjs getCommonSampleInfo) ---
 
 function valueToMidi(value, fallback) {
@@ -214,5 +224,7 @@ export function sampleParams(value, duration) {
   delete params.n;
   delete params.bank;
   delete params.clip;
+  // dough's `loop` (Krapfen patch) keeps the sample wrapping while held.
+  if (value.loop) params.loop = 1;
   return { params, duration: holdDuration };
 }

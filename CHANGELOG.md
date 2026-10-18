@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0
+
+Sound effects: Krapfen can now replace an app's whole audio engine.
+
+- `Krapfen.loadSound(name, bytes)` decodes encoded audio (wav, ogg, mp3, flac,
+  aac, ...) into the engine and returns a `Sound`; loaded sounds are also
+  playable from patterns as `s("name")`.
+- `playSound(sound, volume, pan, speed)` plays a one-shot now;
+  `loopSound(...)` loops seamlessly. Both return a `SoundHandle` with live
+  `volume`/`pan` and `stop()`.
+- `musicVolume` and `effectsVolume`, alongside the overall `volume`.
+- `stop()` now only silences the pattern; sound effects keep playing.
+- Strudel's `loop` control works on samples.
+- Pattern samples now play at superdough's level (they were 3.5 dB louder;
+  derived from both engines' code).
+- 128 voices (was 64); separate sample slots for pattern samples and app
+  sound effects.
+
 ## 0.1.0
 
 First release: Krapfen as an Android library (AAR).

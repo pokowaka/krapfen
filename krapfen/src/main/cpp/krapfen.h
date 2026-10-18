@@ -9,5 +9,9 @@ double krapfen_audio_time(void);
 // the audio thread. Thread-safe. Returns 0 if the queue was full.
 int krapfen_send(const char *msg);
 
-// Number of dough file slots for samples (exposed to JS as __krapfenMaxFiles).
+// dough file slots for samples. Slots below KRAPFEN_SOUND_FILE_BASE belong to
+// samples loaded by patterns (samples(...), managed in JS, exposed as
+// __krapfenMaxFiles); slots from KRAPFEN_SOUND_FILE_BASE up belong to sound
+// effects loaded by the app (Krapfen.loadSound, managed in Kotlin).
 #define KRAPFEN_MAX_FILES 1024
+#define KRAPFEN_SOUND_FILE_BASE 512

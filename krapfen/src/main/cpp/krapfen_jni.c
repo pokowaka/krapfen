@@ -192,10 +192,10 @@ Java_dev_krapfen_Native_start(JNIEnv *env, jclass clazz)
 
     if (!dough_ready)
     {
-        // sample_rate, max_voices, max_orbits, max_delay_time (s),
+        // sample_rate, max_voices (music + sound effects), max_orbits, max_delay_time (s),
         // max_pcm (floats: 8M = 32 MB, ~87 s of stereo samples at 48 kHz),
         // max_events (scheduled ahead), max_files (sample slots)
-        dough_init((int)device.sampleRate, 64, 1, 1, 1 << 23, 1024, KRAPFEN_MAX_FILES);
+        dough_init((int)device.sampleRate, 128, 1, 1, 1 << 23, 1024, KRAPFEN_MAX_FILES);
         atomic_store(&sample_rate, device.sampleRate);
         dough_ready = 1;
     }
@@ -275,6 +275,22 @@ Java_dev_krapfen_Native_registerSample(JNIEnv *env, jclass clazz, jint file, jfl
     if (r != 0)
         LOGE("registerSample: no room for file %d (%d floats)", file, (int)len);
     return r == 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_dev_krapfen_Native_soundFileBase(JNIEnv *env, jclass clazz)
+{
+    (void)env;
+    (void)clazz;
+    return KRAPFEN_SOUND_FILE_BASE;
+}
+
+JNIEXPORT jint JNICALL
+Java_dev_krapfen_Native_maxFiles(JNIEnv *env, jclass clazz)
+{
+    (void)env;
+    (void)clazz;
+    return KRAPFEN_MAX_FILES;
 }
 
 JNIEXPORT jint JNICALL
