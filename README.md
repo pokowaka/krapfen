@@ -42,6 +42,12 @@ Strudel code ─► QuickJS ─► Strudel's own pattern engine + scheduler ─�
 Requirements: **minSdk 26** (Android 8.0), Kotlin (or Java with the Kotlin
 standard library), arm64-v8a / armeabi-v7a / x86 / x86_64.
 
+> [!TIP]
+> Use **Android Gradle Plugin 8.5.1 or newer** in your app. Older versions
+> don't 16 KB-align native libraries in the APK, so on 16 KB page-size
+> devices (and emulator images) Android shows an "app isn't 16 KB
+> compatible" warning and runs the app in compatibility mode.
+
 ### Option A: drop in the AAR
 
 1. Download `krapfen-<version>.aar` from the
