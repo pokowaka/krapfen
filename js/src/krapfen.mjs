@@ -68,21 +68,78 @@ function plainValue(value) {
 }
 
 // --- hap -> dough message ---
+//
+// Strudel controls are passed to dough by name. Where dough's defaults or
+// behaviour differ from superdough (strudel.cc's engine), values are
+// adjusted here so patterns sound the same. Measurements referenced below
+// come from tools/dough-bench (dough-synth 0.4.2).
 
 // Strudel controls dough doesn't understand under the same name.
 const renamed = {
   sound: 's',
 };
 
-// superdough's `roomsize` is the length in seconds of the reverb impulse
-// response it generates (createReverb(duration, ...)); dough's Dattorro
-// reverb takes a 0..1 decay instead. PLACEHOLDER: this linear mapping is a
-// guess that only keeps values in dough's range; it has not been measured
-// or listened to. To be replaced by a fit of dough's measured tail length.
-const roomsizeToDecay = (size) => Math.min(0.97, Math.max(0.2, 0.5 + 0.045 * size));
-
-// Keys that are bookkeeping, not sound parameters.
+// Keys that are bookkeeping or handled specially, not passed through.
 const skipped = new Set(['id', 'cps', 'cycle', 'delta', 'roomsize', 'size', 'sz']);
+
+// superdough's basic synth waveforms (synth.mjs).
+const synthWaveforms = new Set(['triangle', 'square', 'sawtooth', 'sine', 'saw', 'tri']);
+
+// superdough's envelope rules (helpers.mjs getADSRValues): without any ADSR
+// controls, synths use [0.001, 0.05, 0.6, 0.01]; otherwise a missing sustain
+// is 1 if only attack is given (or nothing), else 0.001. dough defaults to
+// sustain 1, so synth envelopes are always sent explicitly.
+function superdoughADSR(v) {
+  const { attack: a, decay: d, sustain: s, release: r } = v;
+  if (a == null && d == null && s == null && r == null) return [0.001, 0.05, 0.6, 0.01];
+  const sustain = s != null ? s : (a != null && d == null) || (a == null && d == null) ? 1 : 0.001;
+  return [Math.max(a ?? 0, 0.001), Math.max(d ?? 0, 0.001), Math.min(sustain, 1), Math.max(r ?? 0, 0.01)];
+}
+
+// superdough's `roomsize` is the RT60 (seconds) of the reverb impulse
+// response it generates (reverbGen.mjs; default 2 s). dough's Dattorro reverb
+// takes a decay coefficient instead. Measured RT60 of dough per decay
+// (tools/dough-bench rt60); we interpolate in log(RT60) to invert it.
+const DOUGH_RT60 = [
+  [0.1, 0.408], [0.2, 0.522], [0.3, 0.701], [0.4, 0.904], [0.5, 1.152],
+  [0.6, 1.542], [0.7, 2.179], [0.75, 2.642], [0.8, 3.403], [0.85, 4.534],
+  [0.9, 6.94], [0.92, 8.4], [0.94, 10.734], [0.96, 17.12], [0.97, 22.171],
+  [0.98, 32.266], [0.99, 61.029],
+];
+
+export function decayForRT60(seconds) {
+  const t = Math.log(Math.max(seconds, 1e-3));
+  const first = DOUGH_RT60[0];
+  const last = DOUGH_RT60[DOUGH_RT60.length - 1];
+  if (t <= Math.log(first[1])) return first[0];
+  if (t >= Math.log(last[1])) return last[0];
+  for (let i = 1; i < DOUGH_RT60.length; i++) {
+    const [d0, r0] = DOUGH_RT60[i - 1];
+    const [d1, r1] = DOUGH_RT60[i];
+    const l0 = Math.log(r0);
+    const l1 = Math.log(r1);
+    if (t <= l1) return d0 + ((t - l0) / (l1 - l0)) * (d1 - d0);
+  }
+  return last[0];
+}
+
+// Applies superdough's defaults/semantics on top of a plain hap value.
+export function toDoughParams(value) {
+  const v = { ...value };
+  v.s ??= 'triangle'; // superdough's default sound
+  v.gain ??= 0.8; // superdough's default gain (dough's is 1)
+  if (synthWaveforms.has(v.s)) {
+    [v.attack, v.decay, v.sustain, v.release] = superdoughADSR(v);
+  }
+  // Both engines use the same equal-power pan law, except that dough skips
+  // panning entirely at exactly 0.5 (both channels at full level), whereas
+  // superdough attenuates the centre by 3 dB. Nudge off the special case.
+  if (v.pan === 0.5) v.pan = 0.500001;
+  if (typeof v.room === 'number' && v.room > 0 && v.roomdecay === undefined) {
+    v.roomdecay = decayForRT60(v.roomsize ?? v.size ?? v.sz ?? 2);
+  }
+  return v;
+}
 
 function doughMessage(value, time, duration) {
   const parts = ['dough', 'play', 'time', time.toFixed(6), 'duration', duration.toFixed(6)];
@@ -96,10 +153,6 @@ function doughMessage(value, time, duration) {
       // dough messages are '/'-separated, so only simple strings are safe.
       parts.push(key, v);
     }
-  }
-  const size = value.roomsize ?? value.size ?? value.sz;
-  if (typeof size === 'number' && value.roomdecay === undefined) {
-    parts.push('roomdecay', roomsizeToDecay(size).toFixed(3));
   }
   return parts.join('/');
 }
@@ -115,8 +168,7 @@ let late = 0;
 function onSchedule(hap, time, cps) {
   const value = plainValue(hap.value);
   if (!value.s && value.note === undefined && value.freq === undefined) return; // nothing to play
-  value.s ??= 'triangle';
-  const message = doughMessage(value, time, hap.duration.valueOf() / cps);
+  const message = doughMessage(toDoughParams(value), time, hap.duration.valueOf() / cps);
   const lead = time - audioTime();
   minLead = Math.min(minLead, lead);
   if (lead < 0) late++;
@@ -185,7 +237,8 @@ globalThis.krapfen = {
   },
 
   // Exposed for tests.
-  doughMessage,
+  doughMessage: (value, time = 0, duration = 1) => doughMessage(toDoughParams(value), time, duration),
+  decayForRT60,
 
   tick: runTimers,
 };

@@ -87,6 +87,14 @@ static _Atomic uint32_t sample_rate;
 // Peak level of the most recent callback, for the UI meter / verification.
 static _Atomic float last_peak;
 
+// dough's synth voices peak at 0.1 per channel at gain 1 (measured with
+// tools/dough-bench), while superdough's peak at 0.3 (osc * 0.3 * env *
+// gain). Scaling the mix by 3 matches strudel.cc's loudness.
+#define MASTER_GAIN 3.0f
+
+// User volume (0..1+), on top of MASTER_GAIN.
+static _Atomic float volume = 1.0f;
+
 // Seconds on dough's timeline: the start time of the next block to be
 // rendered. Events must be timestamped on this clock.
 double krapfen_audio_time(void)
@@ -118,12 +126,15 @@ static void data_callback(ma_device *dev, void *output, const void *input, ma_ui
     dough_render(out, (int)frame_count, time);
     atomic_store_explicit(&frames_rendered, frames + frame_count, memory_order_relaxed);
 
+    float gain = MASTER_GAIN * atomic_load_explicit(&volume, memory_order_relaxed);
     float peak = 0.0f;
     for (ma_uint32 i = 0; i < frame_count * dev->playback.channels; i++)
     {
-        float v = fabsf(out[i]);
-        if (v > peak)
-            peak = v;
+        // Hard clip like a browser's audio output would.
+        float v = fminf(1.0f, fmaxf(-1.0f, out[i] * gain));
+        out[i] = v;
+        if (fabsf(v) > peak)
+            peak = fabsf(v);
     }
     atomic_store_explicit(&last_peak, peak, memory_order_relaxed);
 }
@@ -201,4 +212,12 @@ Java_dev_krapfen_Native_peak(JNIEnv *env, jclass clazz)
     (void)env;
     (void)clazz;
     return atomic_load_explicit(&last_peak, memory_order_relaxed);
+}
+
+JNIEXPORT void JNICALL
+Java_dev_krapfen_Native_setVolume(JNIEnv *env, jclass clazz, jfloat v)
+{
+    (void)env;
+    (void)clazz;
+    atomic_store_explicit(&volume, fmaxf(0.0f, v), memory_order_relaxed);
 }

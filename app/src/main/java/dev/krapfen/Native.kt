@@ -22,6 +22,9 @@ object Native {
     /** Peak sample level (0..1) of the most recently rendered block. */
     @JvmStatic external fun peak(): Float
 
+    /** Output volume, 1.0 = strudel.cc loudness. */
+    @JvmStatic external fun setVolume(volume: Float)
+
     // --- Strudel pattern engine (QuickJS). Call only from StrudelEngine's thread. ---
 
     /** Loads the Strudel bundle. Returns null on success, else an error. */

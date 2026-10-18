@@ -19618,8 +19618,61 @@ Please check with "npm ls @strudel/core".`
   var renamed = {
     sound: "s"
   };
-  var roomsizeToDecay = (size2) => Math.min(0.97, Math.max(0.2, 0.5 + 0.045 * size2));
   var skipped = /* @__PURE__ */ new Set(["id", "cps", "cycle", "delta", "roomsize", "size", "sz"]);
+  var synthWaveforms = /* @__PURE__ */ new Set(["triangle", "square", "sawtooth", "sine", "saw", "tri"]);
+  function superdoughADSR(v2) {
+    const { attack: a, decay: d, sustain: s2, release: r } = v2;
+    if (a == null && d == null && s2 == null && r == null) return [1e-3, 0.05, 0.6, 0.01];
+    const sustain2 = s2 != null ? s2 : a != null && d == null || a == null && d == null ? 1 : 1e-3;
+    return [Math.max(a ?? 0, 1e-3), Math.max(d ?? 0, 1e-3), Math.min(sustain2, 1), Math.max(r ?? 0, 0.01)];
+  }
+  var DOUGH_RT60 = [
+    [0.1, 0.408],
+    [0.2, 0.522],
+    [0.3, 0.701],
+    [0.4, 0.904],
+    [0.5, 1.152],
+    [0.6, 1.542],
+    [0.7, 2.179],
+    [0.75, 2.642],
+    [0.8, 3.403],
+    [0.85, 4.534],
+    [0.9, 6.94],
+    [0.92, 8.4],
+    [0.94, 10.734],
+    [0.96, 17.12],
+    [0.97, 22.171],
+    [0.98, 32.266],
+    [0.99, 61.029]
+  ];
+  function decayForRT60(seconds2) {
+    const t = Math.log(Math.max(seconds2, 1e-3));
+    const first = DOUGH_RT60[0];
+    const last = DOUGH_RT60[DOUGH_RT60.length - 1];
+    if (t <= Math.log(first[1])) return first[0];
+    if (t >= Math.log(last[1])) return last[0];
+    for (let i2 = 1; i2 < DOUGH_RT60.length; i2++) {
+      const [d0, r0] = DOUGH_RT60[i2 - 1];
+      const [d1, r1] = DOUGH_RT60[i2];
+      const l0 = Math.log(r0);
+      const l1 = Math.log(r1);
+      if (t <= l1) return d0 + (t - l0) / (l1 - l0) * (d1 - d0);
+    }
+    return last[0];
+  }
+  function toDoughParams(value) {
+    const v2 = { ...value };
+    v2.s ??= "triangle";
+    v2.gain ??= 0.8;
+    if (synthWaveforms.has(v2.s)) {
+      [v2.attack, v2.decay, v2.sustain, v2.release] = superdoughADSR(v2);
+    }
+    if (v2.pan === 0.5) v2.pan = 0.500001;
+    if (typeof v2.room === "number" && v2.room > 0 && v2.roomdecay === void 0) {
+      v2.roomdecay = decayForRT60(v2.roomsize ?? v2.size ?? v2.sz ?? 2);
+    }
+    return v2;
+  }
   function doughMessage(value, time3, duration2) {
     const parts = ["dough", "play", "time", time3.toFixed(6), "duration", duration2.toFixed(6)];
     for (let [key, v2] of Object.entries(value)) {
@@ -19632,10 +19685,6 @@ Please check with "npm ls @strudel/core".`
         parts.push(key, v2);
       }
     }
-    const size2 = value.roomsize ?? value.size ?? value.sz;
-    if (typeof size2 === "number" && value.roomdecay === void 0) {
-      parts.push("roomdecay", roomsizeToDecay(size2).toFixed(3));
-    }
     return parts.join("/");
   }
   var scheduled = 0;
@@ -19645,8 +19694,7 @@ Please check with "npm ls @strudel/core".`
   function onSchedule(hap, time3, cps2) {
     const value = plainValue(hap.value);
     if (!value.s && value.note === void 0 && value.freq === void 0) return;
-    value.s ??= "triangle";
-    const message = doughMessage(value, time3, hap.duration.valueOf() / cps2);
+    const message = doughMessage(toDoughParams(value), time3, hap.duration.valueOf() / cps2);
     const lead = time3 - audioTime();
     minLead = Math.min(minLead, lead);
     if (lead < 0) late2++;
@@ -19701,7 +19749,8 @@ Please check with "npm ls @strudel/core".`
       }));
     },
     // Exposed for tests.
-    doughMessage,
+    doughMessage: (value, time3 = 0, duration2 = 1) => doughMessage(toDoughParams(value), time3, duration2),
+    decayForRT60,
     tick: runTimers
   };
 })();
