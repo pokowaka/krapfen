@@ -13,4 +13,5 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Krapfen"
-include(":app")
+include(":krapfen") // the library (AAR)
+include(":app") // demo app

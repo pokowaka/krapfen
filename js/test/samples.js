@@ -1,5 +1,5 @@
 // Sample maps, selection (n, bank, note), loading and dough messages.
-//   qjs --std -I js/test/fake-host.js -I app/src/main/assets/krapfen/strudel.js js/test/samples.js
+//   qjs --std -I js/test/fake-host.js -I krapfen/src/main/assets/krapfen/strudel.js js/test/samples.js
 globalThis.__fixtures = {
   'https://raw.githubusercontent.com/someone/drums/main/strudel.json': JSON.stringify({
     _base: 'https://cdn.example/drums/',

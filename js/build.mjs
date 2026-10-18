@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const strudel = path.join(here, '../third_party/strudel/packages');
-const outfile = path.join(here, '../app/src/main/assets/krapfen/strudel.js');
+const outfile = path.join(here, '../krapfen/src/main/assets/krapfen/strudel.js');
 
 const result = await build({
   entryPoints: [path.join(here, 'src/krapfen.mjs')],

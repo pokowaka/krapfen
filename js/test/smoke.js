@@ -1,5 +1,5 @@
 // Smoke test for the bundle, runnable with the desktop `qjs` shell:
-//   qjs --std -I app/src/main/assets/krapfen/strudel.js js/test/smoke.js
+//   qjs --std -I krapfen/src/main/assets/krapfen/strudel.js js/test/smoke.js
 // (or via `npm test` with QJS pointing at a qjs binary).
 
 const show = (label, events) => {

@@ -1,0 +1,55 @@
+# Builds Krapfen and publishes a GitHub release when a version tag is pushed.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install NDK and CMake
+        run: >
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "platforms;android-34" "ndk;28.2.13676358" "cmake;3.31.6" > /dev/null
+
+      - name: Check that the tag matches krapfen.version
+        run: |
+          version=$(sed -n 's/^krapfen.version=//p' gradle.properties)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
+
+      - name: Build
+        run: >
+          ./gradlew --no-daemon
+          :krapfen:assembleRelease
+          :krapfen:publishReleasePublicationToLocalRepository
+          :app:assembleDebug
+
+      - name: Collect artifacts
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          mkdir dist
+          cp krapfen/build/outputs/aar/krapfen-release.aar "dist/krapfen-$v.aar"
+          (cd krapfen/build/repo && zip -qr "../../../dist/krapfen-$v-maven-repo.zip" .)
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/krapfen-demo-$v.apk"
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          # Release notes: the CHANGELOG section for this version.
+          awk -v v="$v" '$0 ~ "^## " {p = ($2 == v)} p' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Krapfen $v" --notes-file notes.md

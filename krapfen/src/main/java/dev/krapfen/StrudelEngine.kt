@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
  *
  * Callbacks run on the engine thread.
  */
-class StrudelEngine(private val context: Context) {
+internal class StrudelEngine(private val context: Context) {
 
     data class Event(val begin: Double, val end: Double, val duration: Double, val value: JSONObject)
 
@@ -73,11 +73,19 @@ class StrudelEngine(private val context: Context) {
         }
     }
 
-    /** Loads the bundle from assets. */
+    // Engine thread only.
+    private var initialized = false
+
+    /** Loads the bundle from assets (once). */
     fun init(onDone: (Result<Unit>) -> Unit) = post {
+        if (initialized) {
+            onDone(Result.Ok(Unit))
+            return@post
+        }
         Native.hostRequestHandler = ::onHostRequest
         val bundle = context.assets.open("krapfen/strudel.js").bufferedReader().use { it.readText() }
         val error = Native.jsInit(bundle)
+        initialized = error == null
         onDone(if (error == null) Result.Ok(Unit) else Result.Error(error))
     }
 
@@ -105,6 +113,40 @@ class StrudelEngine(private val context: Context) {
     fun stop(onDone: () -> Unit = {}) = post {
         call("stop")
         playing = false
+        onDone()
+    }
+
+    /** Opens the audio device (idempotent). */
+    fun startAudio(onDone: (Result<Unit>) -> Unit = {}) = post {
+        val r = Native.start()
+        onDone(if (r == 0) Result.Ok(Unit) else Result.Error("audio output failed to start ($r)"))
+    }
+
+    /** Suspends scheduling and closes the audio device, keeping the position. */
+    fun pause(onDone: () -> Unit = {}) = post {
+        call("pause")
+        playing = false
+        Native.stop()
+        onDone()
+    }
+
+    /** Reopens the audio device and continues playback paused by [pause]. */
+    fun resume(onDone: (Result<Unit>) -> Unit = {}) = post {
+        val r = Native.start()
+        if (r != 0) {
+            onDone(Result.Error("audio output failed to start ($r)"))
+            return@post
+        }
+        val resumed = call("resume")
+        if (resumed is Result.Ok && resumed.value == true) playing = true
+        onDone(resumed.map { })
+    }
+
+    /** Stops playback and closes the audio device. */
+    fun shutdown(onDone: () -> Unit = {}) = post {
+        call("stop")
+        playing = false
+        Native.stop()
         onDone()
     }
 

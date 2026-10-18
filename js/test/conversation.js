@@ -1,5 +1,5 @@
 // Evaluates "A Conversation in Four Minutes" and summarises all 40 cycles.
-//   qjs --std -I app/src/main/assets/krapfen/strudel.js js/test/conversation.js
+//   qjs --std -I krapfen/src/main/assets/krapfen/strudel.js js/test/conversation.js
 const code = std.loadFile('app/src/main/assets/krapfen/examples/conversation.strudel');
 (async () => {
   const t0 = performance.now();

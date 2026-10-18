@@ -1,7 +1,12 @@
 package dev.krapfen
 
-/** JNI bindings for the native dough engine (see src/main/cpp/krapfen_jni.c). */
-object Native {
+/**
+ * JNI bindings for the native engine (src/main/cpp). Internal: use [Krapfen].
+ *
+ * The class name and the members called from native code ([onHostRequest],
+ * [onLog]) must not be renamed; see consumer-rules.pro.
+ */
+internal object Native {
     init {
         System.loadLibrary("krapfen")
     }
@@ -42,6 +47,16 @@ object Native {
     @JvmStatic
     fun onHostRequest(op: String, id: Int, arg: String) {
         hostRequestHandler?.invoke(op, id, arg)
+    }
+
+    /** Receives console output from JS; set by Krapfen. */
+    @Volatile
+    var logHandler: ((level: Int, message: String) -> Unit)? = null
+
+    /** Called from native code (engine thread) for JS console output. */
+    @JvmStatic
+    fun onLog(level: Int, message: String) {
+        logHandler?.invoke(level, message)
     }
 
     // --- Strudel pattern engine (QuickJS). Call only from StrudelEngine's thread. ---

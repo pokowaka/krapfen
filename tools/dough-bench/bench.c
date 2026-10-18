@@ -8,7 +8,7 @@
 // Build & run: tools/dough-bench/run.sh
 //
 // Uses the same dough configuration as the app (see
-// app/src/main/cpp/dough_impl.c and krapfen_jni.c).
+// krapfen/src/main/cpp/dough_impl.c and krapfen_jni.c).
 
 #include <math.h>
 #include <stdio.h>

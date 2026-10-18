@@ -3,7 +3,7 @@ by Felix Roos and contributors, AGPL-3.0-or-later. Files are unmodified.
 
 libs/miniaudio.h: miniaudio by David Reid, public domain (Unlicense) or MIT-0.
 
-## Local workarounds (in app/src/main/cpp/dough_impl.c, file itself unmodified)
+## Local workarounds (in krapfen/src/main/cpp/dough_impl.c, file itself unmodified)
 
 dough's single engine allocation is redirected to `calloc(1, size + 64)`:
 

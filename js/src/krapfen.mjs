@@ -4,6 +4,7 @@
 //   await krapfen.evaluate(code)  -> { cps }   evaluate without playing
 //   await krapfen.play(code)      -> { cps }   evaluate and (keep) playing
 //   krapfen.stop()                            stop scheduling, hush dough
+//   krapfen.pause() / await krapfen.resume()  suspend / continue playback
 //   krapfen.status()              -> { started, cycle, cps, time }
 //   krapfen.query(begin, end)     -> [{ begin, end, duration, value }]
 //   krapfen.tick()                            run due timers (host heartbeat)
@@ -226,6 +227,8 @@ const strudel = repl({
 
 const ready = evalScope(core, mini, tonal, { samples });
 
+let pausedWhilePlaying = false;
+
 // Starts loading samples the next couple of cycles will need, so they are
 // ready when first scheduled.
 function preloadUpcoming() {
@@ -257,8 +260,24 @@ globalThis.krapfen = {
   play: (code) => evaluate(code, true),
 
   stop() {
+    pausedWhilePlaying = false;
     strudel.stop();
     hostSend('dough/hush');
+    return true;
+  },
+
+  // Suspends scheduling without losing the position (app in background).
+  pause() {
+    pausedWhilePlaying = strudel.scheduler.started;
+    if (pausedWhilePlaying) strudel.pause();
+    return pausedWhilePlaying;
+  },
+
+  // Continues after pause(); returns whether playback resumed.
+  async resume() {
+    if (!pausedWhilePlaying) return false;
+    pausedWhilePlaying = false;
+    await strudel.start();
     return true;
   },
 

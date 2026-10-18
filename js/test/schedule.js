@@ -1,6 +1,6 @@
 // Plays a pattern for ~1.2 s with Strudel's scheduler and prints the dough
 // messages it produced.
-//   qjs --std -I js/test/capture-send.js -I app/src/main/assets/krapfen/strudel.js js/test/schedule.js
+//   qjs --std -I js/test/capture-send.js -I krapfen/src/main/assets/krapfen/strudel.js js/test/schedule.js
 (async () => {
   await krapfen.play('setcpm(60)\n$: note("c4 e4 g4").s("sine").room(.5).roomsize(8).lpf(800)');
   // Pump the scheduler like the native host does (every 5 ms for 1.2 s).

@@ -1,6 +1,6 @@
 // Prints dough messages for representative Strudel values and the
 // roomsize -> decay mapping.
-//   qjs --std -I app/src/main/assets/krapfen/strudel.js js/test/params.js
+//   qjs --std -I krapfen/src/main/assets/krapfen/strudel.js js/test/params.js
 const cases = [
   { s: 'sine', note: 57 },
   { s: 'sine', note: 57, attack: 0.5 },

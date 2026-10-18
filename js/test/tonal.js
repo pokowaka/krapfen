@@ -1,5 +1,5 @@
 // tonal: scales, transposition, chords and voicings.
-//   qjs --std -I app/src/main/assets/krapfen/strudel.js js/test/tonal.js
+//   qjs --std -I krapfen/src/main/assets/krapfen/strudel.js js/test/tonal.js
 // Prints one line per case so QuickJS output can be diffed against Node.
 const cases = [
   'n("0 2 4 6").scale("C:minor")',

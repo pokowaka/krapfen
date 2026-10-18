@@ -18,12 +18,12 @@ import java.security.MessageDigest
  *
  * All methods block; call them off the engine and UI threads.
  */
-class SampleLoader(context: Context) {
+internal class SampleLoader(context: Context) {
 
     private val cacheDir = File(context.cacheDir, "krapfen-samples").apply { mkdirs() }
 
     /** Decoded audio: interleaved float PCM. */
-    class Pcm(val data: FloatArray, val channels: Int, val sampleRate: Int) {
+    internal class Pcm(val data: FloatArray, val channels: Int, val sampleRate: Int) {
         val frames get() = data.size / channels
     }
 

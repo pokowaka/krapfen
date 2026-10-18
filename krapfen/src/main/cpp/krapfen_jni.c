@@ -151,7 +151,10 @@ Java_dev_krapfen_Native_start(JNIEnv *env, jclass clazz)
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format = ma_format_f32;
     config.playback.channels = 2; // dough renders interleaved stereo
-    config.sampleRate = 0;        // use the device's native rate
+    // First start: use the device's native rate. dough's engine is created
+    // once with that rate, so later restarts (after pause) keep it and let
+    // miniaudio resample if the new device differs.
+    config.sampleRate = dough_ready ? atomic_load(&sample_rate) : 0;
     config.dataCallback = data_callback;
     config.performanceProfile = ma_performance_profile_low_latency;
 

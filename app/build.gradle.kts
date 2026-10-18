@@ -4,29 +4,26 @@ plugins {
 }
 
 android {
-    namespace = "dev.krapfen"
+    namespace = "dev.krapfen.demo"
     compileSdk = 34
-    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "dev.krapfen"
-        // AAudio is available from API 26; miniaudio falls back to OpenSL ES.
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "0.0.1"
-
-        externalNativeBuild {
-            cmake {
-                cFlags += listOf("-O2")
-            }
-        }
+        versionName = providers.gradleProperty("krapfen.version").get()
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.31.6"
+    buildTypes {
+        // Shrunk/obfuscated like a production app, to verify the library's
+        // consumer R8 rules: ./gradlew :app:assembleMinified
+        create("minified") {
+            initWith(getByName("debug"))
+            isDebuggable = false
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            matchingFallbacks += listOf("release")
         }
     }
 
@@ -37,4 +34,8 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    implementation(project(":krapfen"))
 }

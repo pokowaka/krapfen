@@ -26432,6 +26432,7 @@ Please check with "npm ls @strudel/core".`
     clearInterval: (id2) => clearInterval(id2)
   });
   var ready = evalScope2(core_exports, mini_exports, tonal_exports, { samples });
+  var pausedWhilePlaying = false;
   function preloadUpcoming() {
     const pattern2 = strudel.state.pattern;
     if (!pattern2) return;
@@ -26457,8 +26458,22 @@ Please check with "npm ls @strudel/core".`
     evaluate: (code) => evaluate2(code, false),
     play: (code) => evaluate2(code, true),
     stop() {
+      pausedWhilePlaying = false;
       strudel.stop();
       hostSend("dough/hush");
+      return true;
+    },
+    // Suspends scheduling without losing the position (app in background).
+    pause() {
+      pausedWhilePlaying = strudel.scheduler.started;
+      if (pausedWhilePlaying) strudel.pause();
+      return pausedWhilePlaying;
+    },
+    // Continues after pause(); returns whether playback resumed.
+    async resume() {
+      if (!pausedWhilePlaying) return false;
+      pausedWhilePlaying = false;
+      await strudel.start();
       return true;
     },
     status() {

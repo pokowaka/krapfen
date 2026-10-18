@@ -36,6 +36,7 @@ static pthread_mutex_t js_lock = PTHREAD_MUTEX_INITIALIZER;
 static JavaVM *jvm;
 static jclass native_class;
 static jmethodID on_host_request;
+static jmethodID on_log;
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved)
 {
@@ -49,8 +50,9 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved)
         return JNI_ERR;
     native_class = (*env)->NewGlobalRef(env, cls);
     on_host_request = (*env)->GetStaticMethodID(env, cls, "onHostRequest", "(Ljava/lang/String;ILjava/lang/String;)V");
+    on_log = (*env)->GetStaticMethodID(env, cls, "onLog", "(ILjava/lang/String;)V");
     (*env)->DeleteLocalRef(env, cls);
-    return on_host_request ? JNI_VERSION_1_6 : JNI_ERR;
+    return on_host_request && on_log ? JNI_VERSION_1_6 : JNI_ERR;
 }
 
 // --- host functions exposed to JS ---
@@ -65,15 +67,28 @@ static JSValue js_now(JSContext *c, JSValueConst this_val, int argc, JSValueCons
     return JS_NewFloat64(c, ts.tv_sec + ts.tv_nsec / 1e9);
 }
 
+// __krapfenLog(level, message): console output from JS. Goes to logcat and
+// to Kotlin (Krapfen.logListener). Levels: 0 debug, 1 info, 2 warn, 3 error.
 static JSValue js_log(JSContext *c, JSValueConst this_val, int argc, JSValueConst *argv)
 {
     (void)this_val;
     int level = 1;
     if (argc > 0)
         JS_ToInt32(c, &level, argv[0]);
+    level = level < 0 ? 0 : level > 3 ? 3 : level;
     const char *msg = argc > 1 ? JS_ToCString(c, argv[1]) : NULL;
     static const int prio[] = {ANDROID_LOG_DEBUG, ANDROID_LOG_INFO, ANDROID_LOG_WARN, ANDROID_LOG_ERROR};
-    __android_log_print(prio[level < 0 ? 0 : level > 3 ? 3 : level], TAG, "%s", msg ? msg : "");
+    __android_log_print(prio[level], TAG, "%s", msg ? msg : "");
+
+    JNIEnv *env;
+    if (jvm && (*jvm)->GetEnv(jvm, (void **)&env, JNI_VERSION_1_6) == JNI_OK)
+    {
+        jstring jmsg = (*env)->NewStringUTF(env, msg ? msg : "");
+        (*env)->CallStaticVoidMethod(env, native_class, on_log, (jint)level, jmsg);
+        if ((*env)->ExceptionCheck(env))
+            (*env)->ExceptionClear(env);
+        (*env)->DeleteLocalRef(env, jmsg);
+    }
     if (msg)
         JS_FreeCString(c, msg);
     return JS_UNDEFINED;
