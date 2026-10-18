@@ -9,3 +9,4 @@ captures/
 .DS_Store
 node_modules/
 /build/
+__pycache__/

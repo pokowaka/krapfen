@@ -26369,6 +26369,42 @@ Please check with "npm ls @strudel/core".`
     }
     return last[0];
   }
+  var REVERB_FIT = [
+    [0.5, 0.1073, 0.1288],
+    [1, 0.3361, 0.1972],
+    [2, 0.6231, 0.3508],
+    [4, 0.8052, 0.2754],
+    [8, 0.8863, 0.2541]
+  ];
+  var LARGE_ROOM_RATIO = 6.9 / 8;
+  var largeRoomK = (() => {
+    const target = REVERB_FIT[REVERB_FIT.length - 1][1];
+    let lo = 0.1;
+    let hi = 10;
+    for (let i2 = 0; i2 < 40; i2++) {
+      const mid = (lo + hi) / 2;
+      if (decayForRT60(8 * LARGE_ROOM_RATIO * mid) < target) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  })();
+  function reverbParams(size2) {
+    const first = REVERB_FIT[0];
+    const last = REVERB_FIT[REVERB_FIT.length - 1];
+    if (size2 <= first[0]) return { decay: first[1] * Math.max(size2, 0) / first[0], send: first[2] };
+    if (size2 >= last[0]) return { decay: decayForRT60(size2 * LARGE_ROOM_RATIO * largeRoomK), send: last[2] };
+    const t = Math.log(size2);
+    for (let i2 = 1; i2 < REVERB_FIT.length; i2++) {
+      const [s0, d0, c0] = REVERB_FIT[i2 - 1];
+      const [s1, d1, c1] = REVERB_FIT[i2];
+      if (size2 <= s1) {
+        const f = (t - Math.log(s0)) / (Math.log(s1) - Math.log(s0));
+        return { decay: d0 + f * (d1 - d0), send: c0 + f * (c1 - c0) };
+      }
+    }
+    return { decay: last[1], send: last[2] };
+  }
+  var waveformGain = { sawtooth: 0.851, saw: 0.851, square: 0.851 };
   function toDoughParams(value2) {
     const v2 = { ...value2 };
     if (v2.file === void 0) v2.s ??= "triangle";
@@ -26377,8 +26413,14 @@ Please check with "npm ls @strudel/core".`
       [v2.attack, v2.decay, v2.sustain, v2.release] = superdoughADSR(v2);
     }
     if (v2.pan === 0.5) v2.pan = 0.500001;
-    if (typeof v2.room === "number" && v2.room > 0 && v2.roomdecay === void 0) {
-      v2.roomdecay = decayForRT60(v2.roomsize ?? v2.size ?? v2.sz ?? 2);
+    if (waveformGain[v2.s]) v2.gain *= waveformGain[v2.s];
+    if (v2.cutoff !== void 0) v2.resonance ??= 1;
+    if (v2.hcutoff !== void 0) v2.hresonance ??= 1;
+    if (v2.bandf !== void 0) v2.bandq ??= 1;
+    if (typeof v2.room === "number" && v2.room > 0) {
+      const { decay: decay2, send } = reverbParams(v2.roomsize ?? v2.size ?? v2.sz ?? 2);
+      v2.roomdecay ??= decay2;
+      v2.room *= send;
     }
     return v2;
   }
@@ -26503,6 +26545,7 @@ Please check with "npm ls @strudel/core".`
     // Exposed for tests.
     doughMessage: (value2, time3 = 0, duration2 = 1) => doughMessage(toDoughParams(value2), time3, duration2),
     decayForRT60,
+    reverbParams,
     tick: runTimers,
     // Completion of a host request (see samples.mjs).
     _hostDone: hostDone,

@@ -114,6 +114,43 @@ static double rt60(double decay)
     return (t25 - t5) * 3.0;
 }
 
+// Renders one dough message for 4 s, applies Krapfen's master gain (3x)
+// and reports the wet level (RMS 0.1-0.6 s) and RT60 from 0.1 s -- the
+// same measurements as tools/analyze/reverb.py makes on recordings.
+static void measure_message(const char *msg)
+{
+    int frames = SR * 4;
+    float *buf = calloc(frames * CH, sizeof(float));
+    dough_evaluate(msg);
+    render(buf, frames);
+    int n = frames - SR / 10;
+    double *e = calloc(n, sizeof(double)), wet = 0;
+    for (int i = 0; i < n; i++)
+    {
+        double m = 1.5 * (buf[(SR / 10 + i) * CH] + buf[(SR / 10 + i) * CH + 1]); // 3x gain, mono mean
+        e[i] = m * m;
+        if (i < SR / 2)
+            wet += m * m;
+    }
+    for (int i = n - 2; i >= 0; i--)
+        e[i] += e[i + 1];
+    double t5 = -1, t25 = -1;
+    for (int i = 0; i < n && t25 < 0; i++)
+    {
+        double d = 10 * log10(e[i] / e[0] + 1e-30);
+        if (t5 < 0 && d <= -5)
+            t5 = i / (double)SR;
+        if (d <= -25)
+            t25 = i / (double)SR;
+    }
+    printf("msg    wet %6.1f dB  RT60 %5.2f s  %s\n", 10 * log10(wet / (SR / 2) + 1e-30), (t25 - t5) * 3, msg);
+    free(e);
+    free(buf);
+    dough_evaluate("dough/hush");
+    dough_init(SR, 64, 1, 1, 1 << 16, 1024, 4);
+    now = 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "all";
@@ -133,6 +170,39 @@ int main(int argc, char **argv)
         level("sawtooth g1 s1", "s/sawtooth/freq/220/gain/1/attack/0.001/decay/0.05/sustain/1");
         level("triangle g1 s1", "s/triangle/freq/440/gain/1/attack/0.001/decay/0.05/sustain/1");
         level("square g1 s1", "s/square/freq/220/gain/1/attack/0.001/decay/0.05/sustain/1");
+    }
+    if (!strcmp(mode, "filter"))
+    {
+        // Harmonic levels (dB re fundamental) of a sawtooth through lpf, to
+        // compare with the ideal Web Audio biquad.
+        int frames = SR;
+        float *buf = calloc(frames * CH, sizeof(float));
+        dough_evaluate("dough/play/s/sawtooth/freq/261.63/duration/1/gain/1/attack/0.001/decay/0.05/sustain/1/lpf/1000/lpq/1");
+        render(buf, frames);
+        double h[9] = {0};
+        for (int k = 1; k <= 8; k++)
+        {
+            double re = 0, im = 0, f = 261.63 * k;
+            for (int i = SR / 4; i < SR; i++)
+            {
+                double w = 0.5 - 0.5 * cos(2 * M_PI * (i - SR / 4) / (SR * 0.75));
+                re += w * buf[i * CH] * cos(2 * M_PI * f * i / SR);
+                im += w * buf[i * CH] * sin(2 * M_PI * f * i / SR);
+            }
+            h[k] = sqrt(re * re + im * im);
+        }
+        printf("filter saw lpf 1000 lpq 1:");
+        for (int k = 1; k <= 8; k++)
+            printf(" %6.1f", 20 * log10(h[k] / h[1]));
+        printf("\n");
+        free(buf);
+        return 0;
+    }
+    if (!strcmp(mode, "msg"))
+    {
+        for (int i = 2; i < argc; i++)
+            measure_message(argv[i]);
+        return 0;
     }
     if (!strcmp(mode, "rt60") && argc > 2)
     {

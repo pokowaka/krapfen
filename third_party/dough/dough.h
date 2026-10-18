@@ -881,7 +881,9 @@ void BiquadFilter_init(BiquadFilter *self)
 float BiquadFilter_update(BiquadFilter *f, float input, int type, float freq, float Q, float gain)
 {
   float omega = 2.0 * fPI * freq / engine.sr;
-  float sin_omega = par_sinf(omega);
+  // KRAPFEN PATCH: exact sin/cos (was par_sinf/par_cosf, a parabola that is
+  // ~22% off at a 1 kHz cutoff and shifted the filter response).
+  float sin_omega = sinf(omega);
 
   // Q conversion: only lowpass/highpass use dB Q (Web Audio API spec)
   // bandpass/notch/allpass/peaking use linear Q (no conversion needed)
@@ -892,7 +894,7 @@ float BiquadFilter_update(BiquadFilter *f, float input, int type, float freq, fl
   }
   float alpha = sin_omega / (2.0f * Q);
 
-  float cos_omega = par_cosf(omega);
+  float cos_omega = cosf(omega);
   float A, sqrt2Aa, am1w0, ap1w0;
 
   switch (type)
@@ -2635,6 +2637,11 @@ void reset_voice(voice *v)
     }
   }
   ADSRNode_init(&v->gain_adsr);
+  // KRAPFEN PATCH: linear amplitude envelope, as in superdough (its gain
+  // envelopes use 'linear' curves). dough's default is quadratic (2.0),
+  // which made e.g. decay(.2).sustain(0) plucks decay audibly faster.
+  v->gain_adsr.attackCurve = 0.0;
+  v->gain_adsr.decayCurve = 0.0;
   ADSRNode_init(&v->lp_adsr);
   ADSRNode_init(&v->hp_adsr);
   ADSRNode_init(&v->bp_adsr);
@@ -2902,8 +2909,10 @@ void run_voice(Engine *engine, int i)
   if (v->p.pan != 0.5)
   {
     float panpos = (v->p.pan * fPI) / 2.0;
-    v->ch[0] *= par_cosf(panpos);
-    v->ch[1] *= par_sinf(panpos);
+    // KRAPFEN PATCH: exact equal-power pan law (was the parabolic
+    // approximation, +0.5 dB at the centre).
+    v->ch[0] *= cosf(panpos);
+    v->ch[1] *= sinf(panpos);
   }
   // advance local voice time
   v->time += 1 / engine->sr;

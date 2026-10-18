@@ -8,8 +8,9 @@ the [Strudel](https://codeberg.org/uzu/strudel) pattern language and the
 > QuickJS engine and plays through the native dough synth on Android, using
 > Strudel's own scheduler on dough's audio clock.
 >
-> Loudness, synth envelopes, panning and reverb length are calibrated
-> against superdough (see `tools/dough-bench`). Samples load at runtime via
+> The sound is calibrated against recordings of strudel.cc itself
+> (`examples/calibration*.strudel`, `tools/analyze`, `tools/dough-bench`):
+> levels, envelopes, panning, filters and reverb match within about 1 dB. Samples load at runtime via
 > `samples(...)` as on strudel.cc (no banks are preloaded).
 > Strudel's `core`, `mini`, `transpiler` and `tonal` (scales, chords,
 > voicings) are bundled.
@@ -46,8 +47,13 @@ qjs --std -I ../krapfen/src/main/assets/krapfen/strudel.js test/smoke.js
 qjs --std -I js/test/capture-send.js -I krapfen/src/main/assets/krapfen/strudel.js js/test/schedule.js
 qjs --std -I js/test/fake-host.js -I krapfen/src/main/assets/krapfen/strudel.js js/test/samples.js
 qjs --std -I krapfen/src/main/assets/krapfen/strudel.js js/test/tonal.js
-# dough calibration measurements (level, reverb RT60)
+# dough calibration measurements (level, reverb RT60, filter response)
 tools/dough-bench/run.sh
+# compare recordings of the calibration patterns (Krapfen's Record & play
+# button vs. a capture of strudel.cc), and refit the reverb mapping
+tools/analyze/calibration.py krapfen.wav strudel.wav
+tools/analyze/reverb.py krapfen-reverb.wav strudel-reverb.wav
+tools/analyze/fit_reverb.py
 ```
 
 ## Goals

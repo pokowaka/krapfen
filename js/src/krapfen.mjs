@@ -145,6 +145,55 @@ export function decayForRT60(seconds) {
   return last[0];
 }
 
+// [roomsize, dough decay, room send scale], fitted to strudel.cc recordings
+// of examples/calibration-reverb.strudel so that a blip's reverb has the same
+// RT60 and wet level (tools/analyze/fit_reverb.py). superdough normalizes its
+// convolution IR, so its wet level is ~10-18 dB below dough's at equal send.
+const REVERB_FIT = [
+  [0.5, 0.1073, 0.1288],
+  [1, 0.3361, 0.1972],
+  [2, 0.6231, 0.3508],
+  [4, 0.8052, 0.2754],
+  [8, 0.8863, 0.2541],
+];
+
+// Beyond the fitted range, follow strudel.cc's measured RT60/roomsize ratio
+// at 8 (6.9 s / 8) through dough's RT60 curve, scaled to join the fit.
+const LARGE_ROOM_RATIO = 6.9 / 8;
+const largeRoomK = (() => {
+  const target = REVERB_FIT[REVERB_FIT.length - 1][1];
+  let lo = 0.1;
+  let hi = 10;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (decayForRT60(8 * LARGE_ROOM_RATIO * mid) < target) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+})();
+
+export function reverbParams(size) {
+  const first = REVERB_FIT[0];
+  const last = REVERB_FIT[REVERB_FIT.length - 1];
+  if (size <= first[0]) return { decay: first[1] * Math.max(size, 0) / first[0], send: first[2] };
+  if (size >= last[0]) return { decay: decayForRT60(size * LARGE_ROOM_RATIO * largeRoomK), send: last[2] };
+  const t = Math.log(size);
+  for (let i = 1; i < REVERB_FIT.length; i++) {
+    const [s0, d0, c0] = REVERB_FIT[i - 1];
+    const [s1, d1, c1] = REVERB_FIT[i];
+    if (size <= s1) {
+      const f = (t - Math.log(s0)) / (Math.log(s1) - Math.log(s0));
+      return { decay: d0 + f * (d1 - d0), send: c0 + f * (c1 - c0) };
+    }
+  }
+  return { decay: last[1], send: last[2] };
+}
+
+// Bare waveform levels relative to superdough, measured on strudel.cc
+// recordings (tools/analyze/reverb.py): its band-limited sawtooth and square
+// are 1.4 dB quieter than dough's; sine and triangle match.
+const waveformGain = { sawtooth: 0.851, saw: 0.851, square: 0.851 };
+
 // Applies superdough's defaults/semantics on top of a plain hap value.
 export function toDoughParams(value) {
   const v = { ...value };
@@ -157,8 +206,17 @@ export function toDoughParams(value) {
   // panning entirely at exactly 0.5 (both channels at full level), whereas
   // superdough attenuates the centre by 3 dB. Nudge off the special case.
   if (v.pan === 0.5) v.pan = 0.500001;
-  if (typeof v.room === 'number' && v.room > 0 && v.roomdecay === undefined) {
-    v.roomdecay = decayForRT60(v.roomsize ?? v.size ?? v.sz ?? 2);
+  if (waveformGain[v.s]) v.gain *= waveformGain[v.s];
+  // superdough's filters default to resonance 1 (helpers.mjs createFilter;
+  // dB for low/highpass as in Web Audio), dough's to 0.2. Measured on a
+  // sawtooth through lpf(1000): harmonics 2-8 were 1-4 dB weaker in Krapfen.
+  if (v.cutoff !== undefined) v.resonance ??= 1;
+  if (v.hcutoff !== undefined) v.hresonance ??= 1;
+  if (v.bandf !== undefined) v.bandq ??= 1;
+  if (typeof v.room === 'number' && v.room > 0) {
+    const { decay, send } = reverbParams(v.roomsize ?? v.size ?? v.sz ?? 2);
+    v.roomdecay ??= decay;
+    v.room *= send;
   }
   return v;
 }
@@ -313,6 +371,7 @@ globalThis.krapfen = {
   // Exposed for tests.
   doughMessage: (value, time = 0, duration = 1) => doughMessage(toDoughParams(value), time, duration),
   decayForRT60,
+  reverbParams,
 
   tick: runTimers,
 

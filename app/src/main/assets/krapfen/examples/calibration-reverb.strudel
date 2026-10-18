@@ -1,0 +1,15 @@
+// Calibration: reverb size/level sweep and bare waveform levels.
+// 9 cycles x 4 s = 36 s, one event per cycle, synths only.
+//   0-4  short blip into reverb, roomsize .5 1 2 4 8 (room 1)
+//   5    roomsize 4 at room .5 (send level)
+//   6    sawtooth, 7 square (unfiltered, centre), 8 silence
+setcpm(15)
+const blip = (size, room = 1) =>
+  note("c4").s("sine").decay(.05).sustain(0).room(room).roomsize(size)
+arrange(
+  [1, blip(.5)], [1, blip(1)], [1, blip(2)], [1, blip(4)], [1, blip(8)],
+  [1, blip(4, .5)],
+  [1, note("c4").s("sawtooth").clip(.25)],
+  [1, note("c4").s("square").clip(.25)],
+  [1, silence],
+)

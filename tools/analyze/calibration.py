@@ -111,10 +111,29 @@ def echoes(x, rate, start, length):
     return out
 
 
+def find_onset(x, rate, threshold_db=-34.0, window_s=0.01):
+    """Start of the first 10 ms window whose RMS exceeds threshold_db.
+
+    Requiring sustained energy skips short clicks before the music, such as
+    Android's touch sound when a recording is captured from an emulator.
+    The first section (a sine at gain 0.8) is about -15 dB RMS.
+    """
+    m = x.mean(axis=1)
+    w = int(window_s * rate)
+    n = len(m) // w
+    rms = np.sqrt((m[: n * w].reshape(n, w) ** 2).mean(axis=1))
+    above = np.nonzero(rms > 10 ** (threshold_db / 20))[0]
+    if len(above) == 0:
+        raise ValueError("no onset found")
+    i = above[0] * w
+    # refine to the first sample above 1% of full scale in that window
+    seg = np.abs(m[max(0, i - w): i + w])
+    return max(0, i - w) + int(np.argmax(seg > 0.01))
+
+
 def analyze(path):
     x, rate = read_wav(path)
-    level = np.abs(x).max(axis=1)
-    onset = int(np.argmax(level > 1e-3))
+    onset = find_onset(x, rate)
     x = x[onset:]
     res = {"file": path, "rate": rate, "onset_s": onset / rate, "sections": []}
     for cyc, n, name in SECTIONS:

@@ -9,4 +9,4 @@ const cases = [
   { s: 'sawtooth', note: 55, attack: 2, release: 4, cutoff: 700, room: 1 },
 ];
 for (const c of cases) console.log(krapfen.doughMessage(c));
-for (const t of [0.3, 1, 2, 4, 8, 10, 20, 100]) console.log(`roomsize ${t} -> decay ${krapfen.decayForRT60(t).toFixed(4)}`);
+for (const t of [0.25, 0.5, 1, 3, 8, 10, 20]) console.log(`roomsize ${t} -> ${JSON.stringify(krapfen.reverbParams(t))}`);
