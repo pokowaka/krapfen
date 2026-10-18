@@ -74,9 +74,11 @@ const renamed = {
   sound: 's',
 };
 
-// superdough's `roomsize` is roughly the reverb tail length in seconds
-// (0..10); dough's Dattorro reverb takes a 0..1 decay instead. This mapping
-// is an approximation chosen by ear, not a port of superdough's reverb.
+// superdough's `roomsize` is the length in seconds of the reverb impulse
+// response it generates (createReverb(duration, ...)); dough's Dattorro
+// reverb takes a 0..1 decay instead. PLACEHOLDER: this linear mapping is a
+// guess that only keeps values in dough's range; it has not been measured
+// or listened to. To be replaced by a fit of dough's measured tail length.
 const roomsizeToDecay = (size) => Math.min(0.97, Math.max(0.2, 0.5 + 0.045 * size));
 
 // Keys that are bookkeeping, not sound parameters.
