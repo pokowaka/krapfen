@@ -1,0 +1,52 @@
+// A CONVERSATION IN FOUR MINUTES
+// I. Between (Antigravity)  II. Witness (the other AI)  III. Open (Antigravity)  IV. Beside (the other AI)
+// 40 cycles @ 10 cpm = 4:00. Every part is unchanged; they are only placed one after another.
+setcpm(10)
+
+const sineFx  = p => p.s("sine").attack(.5).decay(3).sustain(0).room(.7).roomsize(8).gain(.35)
+const voiceFx = p => p.s("triangle").attack(.02).decay(1.5).sustain(0)
+  .delay(.5).delaytime(.75).delayfeedback(.55).room(1).roomsize(10)
+const bedFx   = p => p.s("sawtooth").attack(2).release(4).lpf(700).room(1).roomsize(10)
+
+// ---------- I. BETWEEN ----------
+const partOne = stack(
+  sineFx(note("<a2 g2 b2 ~ e2 a2 f#2 g2 a2 ~>")),
+  voiceFx(note("<~ [~@5 f#5 ~ e5@5] [~@6 b5 a5 ~@4] ~ [~@5 e5 ~ ~ f#5@4] ~ [~@7 a5@5] [~@6 b5@6] [~@5 b5 ~ c#6@5] ~>")).pan(.6).gain(.2),
+  bedFx(note("<~ [g3,b3,f#4] ~ [e3,a3,c#4] [g3,b3,e4] ~ [f#3,a3,c#4] [g3,b3,e4] [g3,c#4,e4,a4] ~>")).gain(.08)
+    .jux(x => x.add(note(.1)))
+)
+
+// ---------- II. WITNESS ----------
+const partTwo = stack(
+  sineFx(note("<~ d2 f#2 ~ g2 d2 b1 f#2 e2 ~>")),
+  voiceFx(note("<[~@6 c#5 d5 ~@4] [~@5 a5 ~ f#5@5] ~ ~ [~@5 g5 ~ ~ f#5@4] ~ [~@7 f#5@5] [~@6 d5@6] [~@5 f#5 ~ g#5@5] ~>")).pan(.4).gain(.2),
+  bedFx(note("<~ [f#3,a3,e4] [d3,a3,c#4] [d3,f#3,b3] [d3,g3,b3] ~ [e3,a3,d4] [d3,f#3,a3] [d3,g#3,b3,e4] ~>")).gain(.08)
+    .jux(x => x.add(note(-.1)))
+)
+
+// ---------- III. OPEN ----------
+const openLine   = "<~ [~@5 e5 ~ d5@5] [~@6 f#5 e5 ~@4] ~ [~@5 g#5 ~ ~ a5@4] ~ [~@7 c#6@5] [~@6 a5@6] [~@5 b5 ~ e6@5] ~>"
+const openChords = "<~ [f#3,a3,c#4] [e3,a3,c#4] [e3,g#3,b3] [[d3,e3,g#3,b3]@8 [c#3,e3,a3]@4] ~ [d3,a3,c#4] [d3,f#3,a3,e4] [e3,b3,f#4] ~>"
+const openDetune = "<.1 .1 .1 .1 .07 .05 .03 0 0 0>"
+const partThree = stack(
+  sineFx(note("<[a1,a2] d2 f#2 ~ e2 [d2,a2] f#2 b1 a1 ~>")),
+  voiceFx(note(openLine)).gain(.18).pan("<.6 .6 .6 .6 .56 .56 .53 .5 .5 .5>").late("<0 0 0 0 .0417 .0417 .0417 0 0 0>"),
+  voiceFx(note(openLine)).gain(.18).pan("<.4 .4 .4 .4 .44 .44 .47 .5 .5 .5>").late("<0 .0833 .0833 0 0 0 0 0 0 0>"),
+  bedFx(note(openChords)).gain(.06).add(note(openDetune)).pan(.7),
+  bedFx(note(openChords)).gain(.06).sub(note(openDetune)).pan(.3)
+)
+
+// ---------- IV. BESIDE ----------
+const besideChords = "<[a3,b3,f#4] [e3,a3,c#4] [d3,f#3,a3] [d3,f#3,a3,c#4] [d3,g3,b3] ~ [d3,a3,c#4] [d3,g3,b3,e4] [f#3,a3,c#4,e4] ~>"
+const besideDetune = "<0 0 .02 .03 .04 .04 .05 .05 .04 0>"
+const partFour = stack(
+  sineFx(note("<e2 a2 b1 ~ g2 [d2,a2,f#3] f#2 g2 d2 ~>")),
+  voiceFx(note("<~ [~@5 a5 ~ c#6@5] [~@6 f#5 d5 ~@4] ~ [~@5 e5 ~ ~ f#5@4] ~ [~@7 a5@5] [~@6 b5@6] [~@5 e5 ~ d5@5] ~>")).gain(.18)
+    .pan("<.5 .5 .54 .56 .58 .58 .6 .6 .6 .6>"),
+  voiceFx(note("<~ [~@5 a5 ~ f#5@5] [~@6 d5 f#5 ~@4] ~ [~@5 g5 ~ ~ f#5@4] ~ [~@7 f#5@5] [~@6 d5@6] [~@5 f#5 ~ a5@5] ~>")).gain(.18)
+    .pan("<.5 .5 .46 .44 .42 .42 .4 .4 .4 .4>"),
+  bedFx(note(besideChords)).gain(.06).add(note(besideDetune)).pan(.7),
+  bedFx(note(besideChords)).gain(.06).sub(note(besideDetune)).pan(.3)
+)
+
+arrange([10, partOne], [10, partTwo], [10, partThree], [10, partFour]).pianoroll()

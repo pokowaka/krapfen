@@ -21,4 +21,15 @@ object Native {
 
     /** Peak sample level (0..1) of the most recently rendered block. */
     @JvmStatic external fun peak(): Float
+
+    // --- Strudel pattern engine (QuickJS). Call only from StrudelEngine's thread. ---
+
+    /** Loads the Strudel bundle. Returns null on success, else an error. */
+    @JvmStatic external fun jsInit(bundle: String): String?
+
+    /** Evaluates Strudel code: `{"ok":true,"cps":n}` or `{"ok":false,"error":s}`. */
+    @JvmStatic external fun jsEvaluate(code: String): String
+
+    /** Events with onsets in [begin, end) cycles, as a JSON array. */
+    @JvmStatic external fun jsQuery(begin: Double, end: Double): String
 }

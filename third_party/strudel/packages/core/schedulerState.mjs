@@ -1,0 +1,81 @@
+/*
+schedulerState.mjs - Module to pipe out various parameters from the scheduler for global consumption
+Copyright (C) 2026 Strudel contributors - see <https://codeberg.org/uzu/strudel/src/branch/main/packages/core/schedulerState.mjs>
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public License for more details. You should have received a copy of the GNU Affero General Public License along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+let time;
+let cpsFunc;
+let pattern;
+let scheduleFunc;
+let isStarted;
+
+/**
+ * @name getTime
+ * @tags internals
+ * @returns {Number} the current cycle time as a number
+ */
+export function getTime() {
+  if (!time) {
+    throw new Error('no time set! use setTime to define a time source');
+  }
+  return time();
+}
+
+export function setTime(func) {
+  time = func;
+}
+
+let clockTime;
+/**
+ * @name getClockTime
+ * @tags internals
+ * @returns {Number} the current clock time in seconds (onSchedule time)
+ */
+export function getClockTime() {
+  if (!clockTime) {
+    throw new Error('no clockTime set! use setClockTime to define a time source');
+  }
+  return clockTime();
+}
+
+export function setClockTime(func) {
+  clockTime = func;
+}
+
+export function setCpsFunc(func) {
+  cpsFunc = func;
+}
+
+/**
+ * @name getCps
+ * @tags internals
+ * @returns {Number} the current cycles per second
+ */
+export function getCps() {
+  return cpsFunc?.();
+}
+
+export function setPattern(pat) {
+  pattern = pat;
+}
+
+export function getPattern() {
+  return pattern;
+}
+
+export function setScheduleFunc(func) {
+  scheduleFunc = func;
+}
+
+export function getScheduleFunc() {
+  return scheduleFunc;
+}
+
+export function setIsStarted(val) {
+  isStarted = !!val;
+}
+
+export function getIsStarted() {
+  return isStarted;
+}

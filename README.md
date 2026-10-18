@@ -4,7 +4,27 @@ Live-coding pattern music on Android — an **unofficial**, independent port of
 the [Strudel](https://codeberg.org/uzu/strudel) pattern language and the
 [dough](https://codeberg.org/uzu/dough) synth engine to native Android.
 
-> **Status:** early proof of concept. Nothing works yet.
+> **Status:** early proof of concept. The dough synth plays on Android, and
+> Strudel code evaluates to events in the embedded QuickJS engine. Playing
+> patterns through dough (the scheduler) is next.
+
+## Building
+
+Requires JDK 17, the Android SDK with NDK 28.2.13676358 and CMake 3.31.6.
+
+```sh
+JAVA_HOME=/path/to/jdk-17 ./gradlew assembleDebug
+```
+
+The Strudel bundle (`app/src/main/assets/krapfen/strudel.js`) is generated
+from `third_party/strudel` and checked in, so the Android build does not need
+Node. To regenerate it, and to run the desktop smoke tests with a QuickJS-ng
+`qjs` binary:
+
+```sh
+cd js && npm install && npm run build
+qjs --std -I ../app/src/main/assets/krapfen/strudel.js test/smoke.js
+```
 
 ## Goals
 
