@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -33,6 +34,10 @@ class StrudelEngine(private val context: Context) {
         val late: Int,
         /** Smallest lead time (s) of any event over the audio clock, or NaN. */
         val minLead: Double,
+        /** Sample files loaded or loading. */
+        val sampleFiles: Int,
+        /** Sample events skipped because their sample was still loading. */
+        val skippedNotReady: Int,
     )
 
     sealed class Result<out T> {
@@ -41,6 +46,10 @@ class StrudelEngine(private val context: Context) {
     }
 
     private val tasks = LinkedBlockingQueue<() -> Unit>()
+
+    // Network and decoding for JS host requests (samples, sample maps).
+    private val io = Executors.newFixedThreadPool(4) { r -> Thread(r, "krapfen-io").apply { isDaemon = true } }
+    private val samples = SampleLoader(context)
 
     // Only touched on the engine thread.
     private var playing = false
@@ -66,6 +75,7 @@ class StrudelEngine(private val context: Context) {
 
     /** Loads the bundle from assets. */
     fun init(onDone: (Result<Unit>) -> Unit) = post {
+        Native.hostRequestHandler = ::onHostRequest
         val bundle = context.assets.open("krapfen/strudel.js").bufferedReader().use { it.readText() }
         val error = Native.jsInit(bundle)
         onDone(if (error == null) Result.Ok(Unit) else Result.Error(error))
@@ -73,7 +83,7 @@ class StrudelEngine(private val context: Context) {
 
     /** Evaluates Strudel code without playing; yields cycles per second. */
     fun evaluate(code: String, onDone: (Result<Double>) -> Unit) = post {
-        onDone(call("evaluate", code).map { (it as JSONObject).getDouble("cps") })
+        callAsync("evaluate", code) { r -> onDone(r.map { (it as JSONObject).getDouble("cps") }) }
     }
 
     /**
@@ -81,9 +91,14 @@ class StrudelEngine(private val context: Context) {
      * pattern in without interrupting the clock, as on strudel.cc.
      */
     fun play(code: String, onDone: (Result<Double>) -> Unit) = post {
-        val result = call("play", code).map { (it as JSONObject).getDouble("cps") }
-        if (result is Result.Ok) playing = true
-        onDone(result)
+        val wasPlaying = playing
+        // Keep ticking while the evaluation waits on sample maps.
+        playing = true
+        callAsync("play", code) { r ->
+            val result = r.map { (it as JSONObject).getDouble("cps") }
+            if (result is Result.Error) playing = wasPlaying
+            onDone(result)
+        }
     }
 
     /** Stops playback and silences dough. */
@@ -105,6 +120,8 @@ class StrudelEngine(private val context: Context) {
                 dropped = s.getInt("dropped"),
                 late = s.getInt("late"),
                 minLead = s.optDouble("minLead", Double.NaN),
+                sampleFiles = s.optInt("files"),
+                skippedNotReady = s.optInt("skippedNotReady"),
             )
         })
     }
@@ -118,6 +135,54 @@ class StrudelEngine(private val context: Context) {
                 Event(e.getDouble("begin"), e.getDouble("end"), e.getDouble("duration"), e.getJSONObject("value"))
             }
         })
+    }
+
+    /**
+     * Handles `__krapfenRequest(op, id, arg)` from JS (engine thread): does
+     * the work on the IO pool and reports back via `krapfen._hostDone`.
+     */
+    private fun onHostRequest(op: String, id: Int, arg: String) {
+        if (op == "callDone") {
+            // Completion of callAsync. Deferred so the callback never
+            // re-enters native code from inside the current JS call.
+            val callback = pendingCalls.remove(id) ?: return
+            val json = JSONObject(arg)
+            val result: Result<Any> = if (json.optBoolean("ok")) Result.Ok(json.opt("value") ?: JSONObject.NULL)
+            else Result.Error(json.optString("error", "unknown error"))
+            post { callback(result) }
+            return
+        }
+        io.execute {
+            val (ok, payload) = try {
+                when (op) {
+                    "fetchText" -> true to samples.fetchText(arg)
+                    "loadSample" -> {
+                        val req = JSONObject(arg)
+                        true to samples.loadSample(req.getString("url"), req.getInt("file"))
+                    }
+                    else -> false to "unknown host request: $op"
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "host request $op failed: $arg", t)
+                false to (t.message ?: t.toString())
+            }
+            post { call("_hostDone", id, ok, payload) }
+        }
+    }
+
+    // callAsync callbacks by id; engine thread only.
+    private val pendingCalls = HashMap<Int, (Result<Any>) -> Unit>()
+    private var nextCallId = 1
+
+    /** Calls a JS method that may wait on host requests (engine thread). */
+    private fun callAsync(method: String, vararg args: Any, onDone: (Result<Any>) -> Unit) {
+        val id = nextCallId++
+        pendingCalls[id] = onDone
+        val r = call("_call", id, method, JSONArray(args.toList()))
+        if (r is Result.Error) {
+            pendingCalls.remove(id)
+            onDone(r)
+        }
     }
 
     private fun call(method: String, vararg args: Any): Result<Any> {

@@ -25,12 +25,33 @@
 // The JS thread is created by Kotlin with an 8 MB stack; leave headroom.
 #define JS_STACK_SIZE (6 * 1024 * 1024)
 #define JS_MEMORY_LIMIT (256 * 1024 * 1024)
-// Upper bound on job-queue iterations while settling one promise.
+// Upper bound on job-queue iterations per drain.
 #define MAX_PENDING_JOBS 1000000
 
 static JSRuntime *rt;
 static JSContext *ctx;
 static pthread_mutex_t js_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// For calls from JS back into Kotlin (Native.onHostRequest).
+static JavaVM *jvm;
+static jclass native_class;
+static jmethodID on_host_request;
+
+JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved)
+{
+    (void)reserved;
+    jvm = vm;
+    JNIEnv *env;
+    if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK)
+        return JNI_ERR;
+    jclass cls = (*env)->FindClass(env, "dev/krapfen/Native");
+    if (!cls)
+        return JNI_ERR;
+    native_class = (*env)->NewGlobalRef(env, cls);
+    on_host_request = (*env)->GetStaticMethodID(env, cls, "onHostRequest", "(Ljava/lang/String;ILjava/lang/String;)V");
+    (*env)->DeleteLocalRef(env, cls);
+    return on_host_request ? JNI_VERSION_1_6 : JNI_ERR;
+}
 
 // --- host functions exposed to JS ---
 
@@ -65,6 +86,38 @@ static JSValue js_audio_time(JSContext *c, JSValueConst this_val, int argc, JSVa
     (void)argc;
     (void)argv;
     return JS_NewFloat64(c, krapfen_audio_time());
+}
+
+// __krapfenRequest(op, id, arg) -> asks the Kotlin host to perform an async
+// operation (fetching, sample loading). The host answers later by calling
+// krapfen._hostDone(id, ok, payload) on the engine thread.
+static JSValue js_request(JSContext *c, JSValueConst this_val, int argc, JSValueConst *argv)
+{
+    (void)this_val;
+    if (argc < 3)
+        return JS_ThrowTypeError(c, "__krapfenRequest(op, id, arg)");
+    JNIEnv *env;
+    if ((*jvm)->GetEnv(jvm, (void **)&env, JNI_VERSION_1_6) != JNI_OK)
+        return JS_ThrowInternalError(c, "no JNI environment on this thread");
+    int32_t id = 0;
+    JS_ToInt32(c, &id, argv[1]);
+    const char *op = JS_ToCString(c, argv[0]);
+    const char *arg = JS_ToCString(c, argv[2]);
+    jstring jop = (*env)->NewStringUTF(env, op ? op : "");
+    jstring jarg = (*env)->NewStringUTF(env, arg ? arg : "");
+    (*env)->CallStaticVoidMethod(env, native_class, on_host_request, jop, (jint)id, jarg);
+    if ((*env)->ExceptionCheck(env))
+    {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+    (*env)->DeleteLocalRef(env, jop);
+    (*env)->DeleteLocalRef(env, jarg);
+    if (op)
+        JS_FreeCString(c, op);
+    if (arg)
+        JS_FreeCString(c, arg);
+    return JS_UNDEFINED;
 }
 
 // __krapfenSend(message) -> queues a dough message for the audio thread.
@@ -112,50 +165,55 @@ static char *describe_exception(JSValue err)
     return out;
 }
 
-// Runs the job queue until `promise` settles. Takes ownership of `promise`.
-// On success returns the resolved value (caller frees); on failure returns
-// JS_EXCEPTION and sets *error (malloc'd).
-static JSValue await_promise(JSValue promise, char **error)
+// Runs queued promise jobs until none are left (bounded).
+static void drain_jobs(void)
 {
-    if (JS_IsException(promise))
+    JSContext *job_ctx;
+    for (int i = 0; i < MAX_PENDING_JOBS; i++)
+    {
+        int r = JS_ExecutePendingJob(rt, &job_ctx);
+        if (r == 0)
+            return;
+        if (r < 0)
+        {
+            char *err = describe_exception(JS_UNDEFINED);
+            LOGE("error in pending job: %s", err ? err : "?");
+            free(err);
+        }
+    }
+}
+
+// Settles `value` (taking ownership): plain values are returned as-is;
+// promises are resolved by draining the job queue. A promise that still
+// pends afterwards is waiting on the host, which can't answer while this
+// thread is blocked -- callers must use krapfen._call for those. On failure
+// returns JS_EXCEPTION and sets *error (malloc'd).
+static JSValue settle(JSValue value, char **error)
+{
+    if (JS_IsException(value))
     {
         *error = describe_exception(JS_UNDEFINED);
         return JS_EXCEPTION;
     }
-    if (!JS_IsPromise(promise))
-        return promise; // plain value
-
-    for (int i = 0; i < MAX_PENDING_JOBS; i++)
+    drain_jobs();
+    if (!JS_IsPromise(value))
+        return value;
+    JSPromiseStateEnum state = JS_PromiseState(ctx, value);
+    if (state == JS_PROMISE_FULFILLED)
     {
-        JSPromiseStateEnum state = JS_PromiseState(ctx, promise);
-        if (state == JS_PROMISE_FULFILLED)
-        {
-            JSValue result = JS_PromiseResult(ctx, promise);
-            JS_FreeValue(ctx, promise);
-            return result;
-        }
-        if (state == JS_PROMISE_REJECTED)
-        {
-            JSValue reason = JS_PromiseResult(ctx, promise);
-            JS_FreeValue(ctx, promise);
-            *error = describe_exception(reason);
-            return JS_EXCEPTION;
-        }
-        JSContext *job_ctx;
-        int r = JS_ExecutePendingJob(rt, &job_ctx);
-        if (r < 0)
-        {
-            char *job_err = describe_exception(JS_UNDEFINED);
-            LOGE("error in pending job: %s", job_err ? job_err : "?");
-            free(job_err);
-        }
-        else if (r == 0)
-        {
-            break; // queue empty but promise still pending
-        }
+        JSValue result = JS_PromiseResult(ctx, value);
+        JS_FreeValue(ctx, value);
+        return result;
     }
-    JS_FreeValue(ctx, promise);
-    *error = strdup("promise did not settle (no pending jobs left)");
+    if (state == JS_PROMISE_REJECTED)
+    {
+        JSValue reason = JS_PromiseResult(ctx, value);
+        JS_FreeValue(ctx, value);
+        *error = describe_exception(reason);
+        return JS_EXCEPTION;
+    }
+    JS_FreeValue(ctx, value);
+    *error = strdup("promise is waiting on the host; call it via krapfen._call");
     return JS_EXCEPTION;
 }
 
@@ -232,6 +290,8 @@ Java_dev_krapfen_Native_jsInit(JNIEnv *env, jclass clazz, jstring jbundle)
     JS_SetPropertyStr(ctx, global, "__krapfenLog", JS_NewCFunction(ctx, js_log, "__krapfenLog", 2));
     JS_SetPropertyStr(ctx, global, "__krapfenAudioTime", JS_NewCFunction(ctx, js_audio_time, "__krapfenAudioTime", 0));
     JS_SetPropertyStr(ctx, global, "__krapfenSend", JS_NewCFunction(ctx, js_send, "__krapfenSend", 1));
+    JS_SetPropertyStr(ctx, global, "__krapfenRequest", JS_NewCFunction(ctx, js_request, "__krapfenRequest", 3));
+    JS_SetPropertyStr(ctx, global, "__krapfenMaxFiles", JS_NewInt32(ctx, KRAPFEN_MAX_FILES));
     JS_FreeValue(ctx, global);
 
     const char *bundle = (*env)->GetStringUTFChars(env, jbundle, NULL);
@@ -253,9 +313,7 @@ Java_dev_krapfen_Native_jsInit(JNIEnv *env, jclass clazz, jstring jbundle)
     else
     {
         // Let module-level promises (evalScope) settle.
-        JSContext *job_ctx;
-        while (JS_ExecutePendingJob(rt, &job_ctx) > 0)
-            ;
+        drain_jobs();
         LOGI("bundle loaded: %zu KB in %.1f ms", len / 1024,
              (t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6);
     }
@@ -265,8 +323,9 @@ Java_dev_krapfen_Native_jsInit(JNIEnv *env, jclass clazz, jstring jbundle)
 }
 
 // Calls globalThis.krapfen[method](...args), where `args_json` is a JSON
-// array, and waits for the result if it is a promise.
-// Returns {"ok":true,"value":...} or {"ok":false,"error":"..."}.
+// array, then runs queued promise jobs. Promise results that settle within
+// those jobs are unwrapped. Returns {"ok":true,"value":...} or
+// {"ok":false,"error":"..."}.
 JNIEXPORT jstring JNICALL
 Java_dev_krapfen_Native_jsCall(JNIEnv *env, jclass clazz, jstring jmethod, jstring jargs)
 {
@@ -301,7 +360,7 @@ Java_dev_krapfen_Native_jsCall(JNIEnv *env, jclass clazz, jstring jmethod, jstri
         for (int i = 0; i < argc; i++)
             argv[i] = JS_GetPropertyUint32(ctx, args, i);
 
-        JSValue result = await_promise(call_krapfen(method, (int)argc, argv), &error);
+        JSValue result = settle(call_krapfen(method, (int)argc, argv), &error);
         for (int i = 0; i < argc; i++)
             JS_FreeValue(ctx, argv[i]);
 
@@ -348,19 +407,6 @@ Java_dev_krapfen_Native_jsTick(JNIEnv *env, jclass clazz)
         free(err);
     }
     JS_FreeValue(ctx, r);
-
-    JSContext *job_ctx;
-    for (int i = 0; i < 10000; i++)
-    {
-        int jr = JS_ExecutePendingJob(rt, &job_ctx);
-        if (jr == 0)
-            break;
-        if (jr < 0)
-        {
-            char *err = describe_exception(JS_UNDEFINED);
-            LOGE("error in pending job: %s", err ? err : "?");
-            free(err);
-        }
-    }
+    drain_jobs();
     pthread_mutex_unlock(&js_lock);
 }

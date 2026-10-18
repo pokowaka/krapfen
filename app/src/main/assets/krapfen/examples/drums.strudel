@@ -1,0 +1,9 @@
+// Drums from tidalcycles/dirt-samples, downloaded on first use,
+// over a filtered saw bass.
+samples('github:tidalcycles/dirt-samples')
+
+setcpm(120/4)
+$: s("bd*4, [~ hh]*4, ~ sd ~ sd").gain(.9)
+$: s("hh*16").gain(.25).pan(sine.slow(2))
+$: note("<c2 c2 eb2 g1>*8").s("sawtooth")
+  .lpf(sine.range(300, 1500).slow(4)).decay(.12).sustain(0).gain(.5)

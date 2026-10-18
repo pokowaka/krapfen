@@ -31,6 +31,7 @@
 // Defined in dough.h's implementation section but not in its public
 // prototypes.
 void dough_render(float *out, int frames, double start_time);
+int dough_register_pcm(int file_index, const float *pcm, int frames, int channels, float freq);
 
 // --- message ring buffer (UI threads -> audio thread) ---
 
@@ -163,8 +164,9 @@ Java_dev_krapfen_Native_start(JNIEnv *env, jclass clazz)
     if (!dough_ready)
     {
         // sample_rate, max_voices, max_orbits, max_delay_time (s),
-        // max_pcm (floats), max_events (scheduled ahead), max_files
-        dough_init((int)device.sampleRate, 64, 1, 1, 1 << 20, 1024, 16);
+        // max_pcm (floats: 8M = 32 MB, ~87 s of stereo samples at 48 kHz),
+        // max_events (scheduled ahead), max_files (sample slots)
+        dough_init((int)device.sampleRate, 64, 1, 1, 1 << 23, 1024, KRAPFEN_MAX_FILES);
         atomic_store(&sample_rate, device.sampleRate);
         dough_ready = 1;
     }
@@ -212,6 +214,46 @@ Java_dev_krapfen_Native_peak(JNIEnv *env, jclass clazz)
     (void)env;
     (void)clazz;
     return atomic_load_explicit(&last_peak, memory_order_relaxed);
+}
+
+// Registers decoded sample data (interleaved float PCM at the device sample
+// rate) as dough file slot `file`.
+//
+// Runs on the caller's thread, not the audio thread. That is safe because
+// dough_register_pcm() only writes the unused tail of dough's PCM pool,
+// engine.pcm_offset (touched by nothing else) and files[file]; the audio
+// thread reads files[file] only when a message referencing it arrives, and
+// such messages are queued after this returns (the ring buffer's
+// release/acquire ordering publishes the writes). Registrations are
+// serialised with a mutex.
+static pthread_mutex_t register_lock = PTHREAD_MUTEX_INITIALIZER;
+
+JNIEXPORT jboolean JNICALL
+Java_dev_krapfen_Native_registerSample(JNIEnv *env, jclass clazz, jint file, jfloatArray jpcm,
+                                       jint channels, jfloat freq)
+{
+    (void)clazz;
+    if (!dough_ready || channels < 1 || channels > 2)
+        return JNI_FALSE;
+    jsize len = (*env)->GetArrayLength(env, jpcm);
+    jfloat *pcm = (*env)->GetFloatArrayElements(env, jpcm, NULL);
+    if (!pcm)
+        return JNI_FALSE;
+    pthread_mutex_lock(&register_lock);
+    int r = dough_register_pcm(file, pcm, len / channels, channels, freq);
+    pthread_mutex_unlock(&register_lock);
+    (*env)->ReleaseFloatArrayElements(env, jpcm, pcm, JNI_ABORT);
+    if (r != 0)
+        LOGE("registerSample: no room for file %d (%d floats)", file, (int)len);
+    return r == 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_dev_krapfen_Native_sampleRate(JNIEnv *env, jclass clazz)
+{
+    (void)env;
+    (void)clazz;
+    return (jint)atomic_load(&sample_rate);
 }
 
 JNIEXPORT void JNICALL

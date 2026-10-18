@@ -8,3 +8,6 @@ double krapfen_audio_time(void);
 // Queues a dough message (e.g. "dough/play/s/sine/note/60/time/1.25") for
 // the audio thread. Thread-safe. Returns 0 if the queue was full.
 int krapfen_send(const char *msg);
+
+// Number of dough file slots for samples (exposed to JS as __krapfenMaxFiles).
+#define KRAPFEN_MAX_FILES 1024

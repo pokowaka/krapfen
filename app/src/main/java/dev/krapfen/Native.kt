@@ -25,6 +25,25 @@ object Native {
     /** Output volume, 1.0 = strudel.cc loudness. */
     @JvmStatic external fun setVolume(volume: Float)
 
+    /** Device sample rate (valid after [start]), or 0. */
+    @JvmStatic external fun sampleRate(): Int
+
+    /**
+     * Registers interleaved float PCM (at [sampleRate]) as dough file slot
+     * [file]. Returns false if dough isn't running or its sample pool is full.
+     */
+    @JvmStatic external fun registerSample(file: Int, pcm: FloatArray, channels: Int, freq: Float): Boolean
+
+    /** Receives async requests from JS (`__krapfenRequest`); set by StrudelEngine. */
+    @Volatile
+    var hostRequestHandler: ((op: String, id: Int, arg: String) -> Unit)? = null
+
+    /** Called from native code on the engine thread. */
+    @JvmStatic
+    fun onHostRequest(op: String, id: Int, arg: String) {
+        hostRequestHandler?.invoke(op, id, arg)
+    }
+
     // --- Strudel pattern engine (QuickJS). Call only from StrudelEngine's thread. ---
 
     /** Loads the Strudel bundle. Returns null on success, else an error. */

@@ -14,8 +14,8 @@
     if (typeof require !== "undefined") return require.apply(this, arguments);
     throw Error('Dynamic require of "' + x + '" is not supported');
   });
-  var __commonJS = (cb, mod2) => function __require2() {
-    return mod2 || (0, cb[__getOwnPropNames(cb)[0]])((mod2 = { exports: {} }).exports, mod2), mod2.exports;
+  var __commonJS = (cb, mod3) => function __require2() {
+    return mod3 || (0, cb[__getOwnPropNames(cb)[0]])((mod3 = { exports: {} }).exports, mod3), mod3.exports;
   };
   var __export = (target, all) => {
     for (var name in all)
@@ -29,13 +29,13 @@
     }
     return to;
   };
-  var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__getProtoOf(mod2)) : {}, __copyProps(
+  var __toESM = (mod3, isNodeMode, target) => (target = mod3 != null ? __create(__getProtoOf(mod3)) : {}, __copyProps(
     // If the importer is in node compatibility mode or this is not an ESM
     // file that has been converted to a CommonJS file using a Babel-
     // compatible transform (i.e. "__esModule" has not been set), then set
     // "default" to the CommonJS "module.exports" for node compatibility.
-    isNodeMode || !mod2 || !mod2.__esModule ? __defProp(target, "default", { value: mod2, enumerable: true }) : target,
-    mod2
+    isNodeMode || !mod3 || !mod3.__esModule ? __defProp(target, "default", { value: mod3, enumerable: true }) : target,
+    mod3
   ));
 
   // node_modules/estraverse/estraverse.js
@@ -19576,6 +19576,165 @@ Please check with "npm ls @strudel/core".`
   }
   registerTranspilerPlugin(widgetTranspilerPlugins);
 
+  // src/samples.mjs
+  var hostRequestFn = globalThis.__krapfenRequest;
+  var MAX_FILES = globalThis.__krapfenMaxFiles ?? 1024;
+  var nextRequestId = 1;
+  var pendingRequests = /* @__PURE__ */ new Map();
+  function hostRequest(op, arg) {
+    if (typeof hostRequestFn !== "function") {
+      return Promise.reject(new Error(`${op}: no host available`));
+    }
+    const id2 = nextRequestId++;
+    return new Promise((resolve, reject) => {
+      pendingRequests.set(id2, { resolve, reject });
+      hostRequestFn(op, id2, typeof arg === "string" ? arg : JSON.stringify(arg));
+    });
+  }
+  function hostDone(id2, ok, payload) {
+    const req = pendingRequests.get(id2);
+    if (!req) return;
+    pendingRequests.delete(id2);
+    if (ok) req.resolve(payload);
+    else req.reject(new Error(String(payload)));
+  }
+  var soundMap = /* @__PURE__ */ new Map();
+  function githubPath(base2, subpath = "") {
+    let path = base2.slice("github:".length);
+    path = path.endsWith("/") ? path.slice(0, -1) : path;
+    const [user, repo = "samples", branch = "main", ...other] = path.split("/");
+    other.push(subpath);
+    return `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${other.join("/")}`;
+  }
+  function resolveBase(base2) {
+    if (base2.startsWith("bubo:")) base2 = `github:Bubobubobubobubo/dough-${base2.split(":")[1]}`;
+    if (base2.startsWith("github:")) base2 = githubPath(base2, "");
+    return base2;
+  }
+  function joinUrl(base2, path) {
+    if (/^[a-z]+:\/\//i.test(path)) return path;
+    if (base2 && !base2.endsWith("/") && !path.startsWith("/")) return `${base2}/${path}`;
+    return base2 + path;
+  }
+  function registerMap(sampleMap, baseUrl) {
+    let count = 0;
+    for (const [key, raw] of Object.entries(sampleMap)) {
+      if (key.startsWith("_")) continue;
+      let value = typeof raw === "string" ? [raw] : raw;
+      if (typeof value !== "object" || value === null) {
+        throw new Error(`wrong sample map format for ${key}`);
+      }
+      const base2 = resolveBase(value._base || baseUrl || "");
+      if (Array.isArray(value)) {
+        value = value.map((v2) => joinUrl(base2, v2));
+      } else {
+        value = Object.fromEntries(
+          Object.entries(value).filter(([note2]) => !note2.startsWith("_")).map(([note2, urls]) => [note2, (typeof urls === "string" ? [urls] : urls).map((v2) => joinUrl(base2, v2))])
+        );
+      }
+      soundMap.set(key.toLowerCase(), value);
+      count++;
+    }
+    return count;
+  }
+  async function samples(sampleMap, baseUrl = sampleMap?._base || "") {
+    if (typeof sampleMap === "string") {
+      if (/^(shabda|local):/.test(sampleMap)) {
+        throw new Error(`samples: "${sampleMap.split(":")[0]}:" sources are not supported in Krapfen`);
+      }
+      let url = sampleMap;
+      if (url.startsWith("bubo:")) url = `github:Bubobubobubobubo/dough-${url.split(":")[1]}`;
+      if (url.startsWith("github:")) url = githubPath(url, "strudel.json");
+      const json = JSON.parse(await hostRequest("fetchText", url));
+      const mapBase = json._base || url.split("/").slice(0, -1).join("/");
+      const n3 = registerMap(json, baseUrl || mapBase);
+      console.log(`[samples] ${n3} sounds from ${url}`);
+      return;
+    }
+    const n2 = registerMap(sampleMap, baseUrl);
+    console.log(`[samples] ${n2} sounds registered`);
+  }
+  var isSample = (s2) => typeof s2 === "string" && soundMap.has(s2.toLowerCase());
+  function valueToMidi2(value, fallback) {
+    if (typeof value.freq === "number") return freqToMidi(value.freq);
+    if (typeof value.note === "string") return noteToMidi(value.note);
+    if (typeof value.note === "number") return value.note;
+    return fallback;
+  }
+  var mod2 = (n2, m2) => (n2 % m2 + m2) % m2;
+  function selectSample(value) {
+    const bank2 = soundMap.get(value.s.toLowerCase());
+    if (!bank2) return null;
+    const midi = valueToMidi2(value, 36);
+    let transpose = midi - 36;
+    let urls;
+    if (Array.isArray(bank2)) {
+      urls = bank2;
+    } else {
+      const diff = (note2) => noteToMidi(note2) - midi;
+      const closest = Object.keys(bank2).reduce(
+        (best, key) => best === null || Math.abs(diff(key)) < Math.abs(diff(best)) ? key : best,
+        null
+      );
+      transpose = -diff(closest);
+      urls = bank2[closest];
+    }
+    if (!urls?.length) return null;
+    const index = mod2(Math.round(value.n ?? 0), urls.length);
+    return { url: urls[index], transpose };
+  }
+  var loaded = /* @__PURE__ */ new Map();
+  var nextFile = 0;
+  var warned = /* @__PURE__ */ new Set();
+  function ensureLoaded(url) {
+    let entry = loaded.get(url);
+    if (entry) return entry;
+    if (nextFile >= MAX_FILES) {
+      if (!warned.has("files")) console.warn(`[samples] all ${MAX_FILES} sample slots are in use`);
+      warned.add("files");
+      return { state: "error" };
+    }
+    entry = { file: nextFile++, state: "loading", seconds: 0 };
+    loaded.set(url, entry);
+    hostRequest("loadSample", { url, file: entry.file }).then((seconds2) => {
+      entry.seconds = Number(seconds2);
+      entry.state = "ready";
+    }).catch((err) => {
+      entry.state = "error";
+      console.warn(`[samples] failed to load ${url}: ${err.message}`);
+    });
+    return entry;
+  }
+  function preload(value) {
+    if (!isSample(value.s)) return;
+    const pick2 = selectSample(value);
+    if (pick2) ensureLoaded(pick2.url);
+  }
+  var skippedNotReady = 0;
+  var sampleStats = () => ({ sounds: soundMap.size, files: nextFile, skippedNotReady });
+  function sampleParams(value, duration2) {
+    const pick2 = selectSample(value);
+    if (!pick2) return null;
+    const entry = ensureLoaded(pick2.url);
+    if (entry.state !== "ready") {
+      skippedNotReady++;
+      return null;
+    }
+    const speed2 = value.speed ?? 1;
+    const rate = Math.abs(speed2) * Math.pow(2, pick2.transpose / 12);
+    const begin2 = value.begin ?? 0;
+    const end2 = value.end ?? 1;
+    const sliceDuration = entry.seconds * Math.max(0, end2 - begin2) / Math.max(rate, 1e-6);
+    const holdDuration = value.clip == null && value.loop == null && value.release == null ? sliceDuration : duration2;
+    const params = { ...value, file: entry.file, speed: speed2 < 0 ? -rate : rate };
+    delete params.note;
+    delete params.freq;
+    delete params.n;
+    delete params.bank;
+    delete params.clip;
+    return { params, duration: holdDuration };
+  }
+
   // src/krapfen.mjs
   var { repl: repl2, evalScope: evalScope2, Pattern: Pattern2, noteToMidi: noteToMidi2 } = core_exports;
   var hostSend = typeof globalThis.__krapfenSend === "function" ? globalThis.__krapfenSend : () => true;
@@ -19620,6 +19779,25 @@ Please check with "npm ls @strudel/core".`
   };
   var skipped = /* @__PURE__ */ new Set(["id", "cps", "cycle", "delta", "roomsize", "size", "sz"]);
   var synthWaveforms = /* @__PURE__ */ new Set(["triangle", "square", "sawtooth", "sine", "saw", "tri"]);
+  var doughSources = /* @__PURE__ */ new Set([
+    ...synthWaveforms,
+    "zawtooth",
+    "zaw",
+    "pulse",
+    "pulze",
+    "zquare",
+    "white",
+    "pink",
+    "brown",
+    "const"
+  ]);
+  function withBank(value) {
+    if (value.bank && typeof value.s === "string") {
+      value = { ...value, s: `${value.bank}_${value.s}` };
+      delete value.bank;
+    }
+    return value;
+  }
   function superdoughADSR(v2) {
     const { attack: a, decay: d, sustain: s2, release: r } = v2;
     if (a == null && d == null && s2 == null && r == null) return [1e-3, 0.05, 0.6, 0.01];
@@ -19662,7 +19840,7 @@ Please check with "npm ls @strudel/core".`
   }
   function toDoughParams(value) {
     const v2 = { ...value };
-    v2.s ??= "triangle";
+    if (v2.file === void 0) v2.s ??= "triangle";
     v2.gain ??= 0.8;
     if (synthWaveforms.has(v2.s)) {
       [v2.attack, v2.decay, v2.sustain, v2.release] = superdoughADSR(v2);
@@ -19691,10 +19869,24 @@ Please check with "npm ls @strudel/core".`
   var dropped = 0;
   var minLead = Infinity;
   var late2 = 0;
+  var warnedSounds = /* @__PURE__ */ new Set();
   function onSchedule(hap, time3, cps2) {
-    const value = plainValue(hap.value);
+    let value = withBank(plainValue(hap.value));
     if (!value.s && value.note === void 0 && value.freq === void 0) return;
-    const message = doughMessage(toDoughParams(value), time3, hap.duration.valueOf() / cps2);
+    let duration2 = hap.duration.valueOf() / cps2;
+    value.s ??= "triangle";
+    if (isSample(value.s)) {
+      const sample = sampleParams(value, duration2);
+      if (!sample) return;
+      value = sample.params;
+      duration2 = sample.duration;
+      delete value.s;
+    } else if (!doughSources.has(value.s)) {
+      if (!warnedSounds.has(value.s)) console.warn(`sound "${value.s}" not found! Is it loaded?`);
+      warnedSounds.add(value.s);
+      return;
+    }
+    const message = doughMessage(toDoughParams(value), time3, duration2);
     const lead = time3 - audioTime();
     minLead = Math.min(minLead, lead);
     if (lead < 0) late2++;
@@ -19708,13 +19900,26 @@ Please check with "npm ls @strudel/core".`
     setInterval: (...a) => setInterval(...a),
     clearInterval: (id2) => clearInterval(id2)
   });
-  var ready = evalScope2(core_exports, mini_exports);
+  var ready = evalScope2(core_exports, mini_exports, { samples });
+  function preloadUpcoming() {
+    const pattern2 = strudel.state.pattern;
+    if (!pattern2) return;
+    const from = Math.max(0, strudel.scheduler.now());
+    try {
+      for (const hap of pattern2.queryArc(from, from + 2)) {
+        if (hap.hasOnset() && hap.value && typeof hap.value === "object") preload(withBank(plainValue(hap.value)));
+      }
+    } catch (err) {
+      console.warn(`preload failed: ${err.message}`);
+    }
+  }
   async function evaluate2(code, autostart) {
     await ready;
     await strudel.evaluate(code, autostart);
     if (strudel.state.evalError) {
       throw strudel.state.evalError;
     }
+    preloadUpcoming();
     return { cps: strudel.scheduler.cps };
   }
   globalThis.krapfen = {
@@ -19735,7 +19940,8 @@ Please check with "npm ls @strudel/core".`
         scheduled,
         dropped,
         late: late2,
-        minLead: Number.isFinite(minLead) ? minLead : null
+        minLead: Number.isFinite(minLead) ? minLead : null,
+        ...sampleStats()
       };
     },
     query(begin2, end2) {
@@ -19751,6 +19957,18 @@ Please check with "npm ls @strudel/core".`
     // Exposed for tests.
     doughMessage: (value, time3 = 0, duration2 = 1) => doughMessage(toDoughParams(value), time3, duration2),
     decayForRT60,
-    tick: runTimers
+    tick: runTimers,
+    // Completion of a host request (see samples.mjs).
+    _hostDone: hostDone,
+    // Asynchronous call for methods that may wait on the host (e.g. evaluate
+    // code that calls samples()): the native caller can't block for those, so
+    // the result is reported through a "callDone" host request.
+    _call(id2, method, args) {
+      const report = (result) => globalThis.__krapfenRequest?.("callDone", id2, JSON.stringify(result));
+      Promise.resolve().then(() => globalThis.krapfen[method](...args)).then(
+        (value) => report({ ok: true, value: value ?? null }),
+        (err) => report({ ok: false, error: err?.message ?? String(err) })
+      );
+    }
   };
 })();

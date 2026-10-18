@@ -7,6 +7,9 @@
 //   krapfen.status()              -> { started, cycle, cps, time }
 //   krapfen.query(begin, end)     -> [{ begin, end, duration, value }]
 //   krapfen.tick()                            run due timers (host heartbeat)
+//   krapfen._hostDone(id, ok, payload)        completes a host request
+//   krapfen._call(id, method, args)           async call; result arrives as
+//                                             host request "callDone"
 //
 // Playback uses Strudel's own scheduler (Cyclist) on dough's audio clock:
 // every scheduled hap becomes a timestamped dough message, which dough
@@ -16,6 +19,7 @@ import { runTimers } from './shims.mjs';
 import * as core from '@strudel/core';
 import * as mini from '@strudel/mini';
 import { transpiler } from '@strudel/transpiler';
+import { samples, isSample, sampleParams, preload, hostDone, sampleStats } from './samples.mjs';
 
 const { repl, evalScope, Pattern, noteToMidi } = core;
 
@@ -85,6 +89,22 @@ const skipped = new Set(['id', 'cps', 'cycle', 'delta', 'roomsize', 'size', 'sz'
 // superdough's basic synth waveforms (synth.mjs).
 const synthWaveforms = new Set(['triangle', 'square', 'sawtooth', 'sine', 'saw', 'tri']);
 
+// Sound sources built into dough (dough.h get_source).
+const doughSources = new Set([
+  ...synthWaveforms,
+  'zawtooth', 'zaw', 'pulse', 'pulze', 'zquare', 'white', 'pink', 'brown', 'const',
+]);
+
+// superdough prefixes the sound with the bank name: bank("tr909").s("bd")
+// plays "tr909_bd".
+function withBank(value) {
+  if (value.bank && typeof value.s === 'string') {
+    value = { ...value, s: `${value.bank}_${value.s}` };
+    delete value.bank;
+  }
+  return value;
+}
+
 // superdough's envelope rules (helpers.mjs getADSRValues): without any ADSR
 // controls, synths use [0.001, 0.05, 0.6, 0.01]; otherwise a missing sustain
 // is 1 if only attack is given (or nothing), else 0.001. dough defaults to
@@ -126,7 +146,7 @@ export function decayForRT60(seconds) {
 // Applies superdough's defaults/semantics on top of a plain hap value.
 export function toDoughParams(value) {
   const v = { ...value };
-  v.s ??= 'triangle'; // superdough's default sound
+  if (v.file === undefined) v.s ??= 'triangle'; // superdough's default sound
   v.gain ??= 0.8; // superdough's default gain (dough's is 1)
   if (synthWaveforms.has(v.s)) {
     [v.attack, v.decay, v.sustain, v.release] = superdoughADSR(v);
@@ -165,10 +185,27 @@ let dropped = 0;
 let minLead = Infinity;
 let late = 0;
 
+const warnedSounds = new Set();
+
 function onSchedule(hap, time, cps) {
-  const value = plainValue(hap.value);
+  let value = withBank(plainValue(hap.value));
   if (!value.s && value.note === undefined && value.freq === undefined) return; // nothing to play
-  const message = doughMessage(toDoughParams(value), time, hap.duration.valueOf() / cps);
+  let duration = hap.duration.valueOf() / cps;
+  value.s ??= 'triangle';
+
+  if (isSample(value.s)) {
+    const sample = sampleParams(value, duration);
+    if (!sample) return; // still loading
+    value = sample.params;
+    duration = sample.duration;
+    delete value.s; // dough plays `file`; the name would mean nothing to it
+  } else if (!doughSources.has(value.s)) {
+    if (!warnedSounds.has(value.s)) console.warn(`sound "${value.s}" not found! Is it loaded?`);
+    warnedSounds.add(value.s);
+    return;
+  }
+
+  const message = doughMessage(toDoughParams(value), time, duration);
   const lead = time - audioTime();
   minLead = Math.min(minLead, lead);
   if (lead < 0) late++;
@@ -186,7 +223,22 @@ const strudel = repl({
   clearInterval: (id) => clearInterval(id),
 });
 
-const ready = evalScope(core, mini);
+const ready = evalScope(core, mini, { samples });
+
+// Starts loading samples the next couple of cycles will need, so they are
+// ready when first scheduled.
+function preloadUpcoming() {
+  const pattern = strudel.state.pattern;
+  if (!pattern) return;
+  const from = Math.max(0, strudel.scheduler.now());
+  try {
+    for (const hap of pattern.queryArc(from, from + 2)) {
+      if (hap.hasOnset() && hap.value && typeof hap.value === 'object') preload(withBank(plainValue(hap.value)));
+    }
+  } catch (err) {
+    console.warn(`preload failed: ${err.message}`);
+  }
+}
 
 async function evaluate(code, autostart) {
   await ready;
@@ -194,6 +246,7 @@ async function evaluate(code, autostart) {
   if (strudel.state.evalError) {
     throw strudel.state.evalError;
   }
+  preloadUpcoming();
   return { cps: strudel.scheduler.cps };
 }
 
@@ -219,6 +272,7 @@ globalThis.krapfen = {
       dropped,
       late,
       minLead: Number.isFinite(minLead) ? minLead : null,
+      ...sampleStats(),
     };
   },
 
@@ -241,4 +295,20 @@ globalThis.krapfen = {
   decayForRT60,
 
   tick: runTimers,
+
+  // Completion of a host request (see samples.mjs).
+  _hostDone: hostDone,
+
+  // Asynchronous call for methods that may wait on the host (e.g. evaluate
+  // code that calls samples()): the native caller can't block for those, so
+  // the result is reported through a "callDone" host request.
+  _call(id, method, args) {
+    const report = (result) => globalThis.__krapfenRequest?.('callDone', id, JSON.stringify(result));
+    Promise.resolve()
+      .then(() => globalThis.krapfen[method](...args))
+      .then(
+        (value) => report({ ok: true, value: value ?? null }),
+        (err) => report({ ok: false, error: err?.message ?? String(err) }),
+      );
+  },
 };

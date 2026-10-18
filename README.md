@@ -8,9 +8,11 @@ the [Strudel](https://codeberg.org/uzu/strudel) pattern language and the
 > QuickJS engine and plays through the native dough synth on Android, using
 > Strudel's own scheduler on dough's audio clock.
 >
-> Known gaps: `tonal` (scales, chords, voicings) is not bundled yet, samples
-> are not supported, and dough's reverb is not superdough's (`roomsize` is
-> approximated).
+> Loudness, synth envelopes, panning and reverb length are calibrated
+> against superdough (see `tools/dough-bench`). Samples load at runtime via
+> `samples(...)` as on strudel.cc (no banks are preloaded).
+>
+> Known gaps: `tonal` (scales, chords, voicings) is not bundled yet.
 
 ## Building
 
@@ -28,8 +30,11 @@ Node. To regenerate it, and to run the desktop smoke tests with a QuickJS-ng
 ```sh
 cd js && npm install && npm run build
 qjs --std -I ../app/src/main/assets/krapfen/strudel.js test/smoke.js
-# from the repo root: scheduler -> dough messages
+# from the repo root: scheduler -> dough messages, samples (fake host)
 qjs --std -I js/test/capture-send.js -I app/src/main/assets/krapfen/strudel.js js/test/schedule.js
+qjs --std -I js/test/fake-host.js -I app/src/main/assets/krapfen/strudel.js js/test/samples.js
+# dough calibration measurements (level, reverb RT60)
+tools/dough-bench/run.sh
 ```
 
 ## Goals

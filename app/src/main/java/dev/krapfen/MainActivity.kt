@@ -37,8 +37,10 @@ class MainActivity : Activity() {
             engine.status { result ->
                 if (result is StrudelEngine.Result.Ok && result.value.started) {
                     val st = result.value
-                    val text = "cycle %.2f · audio %.1f s · scheduled %d · dropped %d · late %d · min lead %.0f ms"
-                        .format(st.cycle, st.time, st.scheduled, st.dropped, st.late, st.minLead * 1000)
+                    val text = ("cycle %.2f · audio %.1f s · scheduled %d · dropped %d · late %d · min lead %.0f ms" +
+                        " · samples %d (waiting %d)")
+                        .format(st.cycle, st.time, st.scheduled, st.dropped, st.late, st.minLead * 1000,
+                            st.sampleFiles, st.skippedNotReady)
                     handler.post { status.text = text }
                     if (SystemClock.elapsedRealtime() - lastLoggedStatusAt > 5000) {
                         Log.i(TAG, "status: $text")
@@ -110,14 +112,15 @@ class MainActivity : Activity() {
             setOnClickListener { showEvents(codeInput.text.toString()) }
         })
         root.addView(row)
-        root.addView(Button(this).apply {
-            text = "Load “A Conversation in Four Minutes”"
-            setOnClickListener {
-                codeInput.setText(
-                    assets.open("krapfen/examples/conversation.strudel").bufferedReader().use { it.readText() }
-                )
-            }
-        })
+        // One button per bundled example (assets/krapfen/examples/*.strudel).
+        for (name in assets.list(EXAMPLES).orEmpty().filter { it.endsWith(".strudel") }.sorted()) {
+            root.addView(Button(this).apply {
+                text = "Load example: ${name.removeSuffix(".strudel")}"
+                setOnClickListener {
+                    codeInput.setText(assets.open("$EXAMPLES/$name").bufferedReader().use { it.readText() })
+                }
+            })
+        }
 
         status = TextView(this).apply {
             typeface = Typeface.MONOSPACE
@@ -268,6 +271,7 @@ class MainActivity : Activity() {
     companion object {
         private const val TAG = "Krapfen"
         private const val MAX_SHOWN = 12
+        private const val EXAMPLES = "krapfen/examples"
         private const val DEFAULT_CODE = "note(\"c e g\").s(\"sine\")"
     }
 }
