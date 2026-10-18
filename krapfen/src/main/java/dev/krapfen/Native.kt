@@ -30,6 +30,12 @@ internal object Native {
     /** Output volume, 1.0 = strudel.cc loudness. */
     @JvmStatic external fun setVolume(volume: Float)
 
+    /** Starts capturing up to [seconds] of output. */
+    @JvmStatic external fun startCapture(seconds: Int): Boolean
+
+    /** Stops capturing; interleaved stereo float samples, or null. */
+    @JvmStatic external fun stopCapture(): FloatArray?
+
     /** Device sample rate (valid after [start]), or 0. */
     @JvmStatic external fun sampleRate(): Int
 

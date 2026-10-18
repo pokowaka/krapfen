@@ -171,6 +171,35 @@ public object Krapfen {
     /** Peak sample level (0..1) of the most recent audio block, e.g. for a meter. */
     public val outputPeak: Float get() = if (engine != null) Native.peak() else 0f
 
+    /**
+     * Starts recording Krapfen's output (what is sent to the speaker, after
+     * volume) for up to [maxSeconds]. For debugging and analysis; see
+     * [stopRecording].
+     */
+    @JvmOverloads
+    public fun startRecording(maxSeconds: Int = 120): Boolean =
+        engine != null && Native.startCapture(maxSeconds)
+
+    /**
+     * Stops recording and writes it to [file] as a 32-bit float stereo WAV
+     * at the device sample rate. The callback receives the duration in
+     * seconds.
+     */
+    public fun stopRecording(file: java.io.File, onResult: ((Result<Double>) -> Unit)? = null) {
+        val pcm = Native.stopCapture()
+            ?: return deliver(onResult, Result.Failure("not recording"))
+        val rate = Native.sampleRate()
+        Thread {
+            val result = try {
+                WavWriter.writeFloatStereo(file, pcm, rate)
+                Result.Success(pcm.size / 2.0 / rate)
+            } catch (e: java.io.IOException) {
+                Result.Failure(e.message ?: e.toString())
+            }
+            deliver(onResult, result)
+        }.start()
+    }
+
     /** Current playback state. */
     public fun status(onResult: (Result<Status>) -> Unit) {
         requireEngine().status { r ->

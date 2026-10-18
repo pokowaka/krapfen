@@ -13,7 +13,8 @@ First release: Krapfen as an Android library (AAR).
   cached and decoded on the device.
 - Public API: `Krapfen.initialize`, `play`, `evaluate`, `stop`,
   `pause`/`resume` (lifecycle-safe), `volume`, `status`, `outputPeak`,
-  `logListener`, `shutdown`.
+  `logListener`, `shutdown`, and `startRecording`/`stopRecording` (WAV
+  capture of the output, for analysis).
 - Known gaps: soundfonts, `supersaw` and other superdough-only sounds and
   effects, sample `cut`/`loop`; dough's reverb colour differs from
   superdough's.

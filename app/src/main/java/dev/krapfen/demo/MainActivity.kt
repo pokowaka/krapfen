@@ -90,6 +90,37 @@ class MainActivity : Activity() {
         })
         root.addView(row)
 
+        // Recording, for comparing Krapfen's output with strudel.cc.
+        val recRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        recRow.addView(Button(this).apply {
+            text = "● Record & play"
+            setOnClickListener {
+                Krapfen.stop()
+                // Give stop() a moment so the recording starts with the pattern.
+                handler.postDelayed({
+                    if (Krapfen.startRecording()) {
+                        Log.i(TAG, "recording started")
+                        play()
+                    }
+                }, 300)
+            }
+        })
+        recRow.addView(Button(this).apply {
+            text = "Save recording"
+            setOnClickListener {
+                val file = java.io.File(getExternalFilesDir(null), "krapfen-${System.currentTimeMillis()}.wav")
+                Krapfen.stopRecording(file) { result ->
+                    val text = when (result) {
+                        is Krapfen.Result.Success -> "saved %.1f s to ${file.path}".format(result.value)
+                        is Krapfen.Result.Failure -> "recording failed: ${result.message}"
+                    }
+                    output.text = text
+                    Log.i(TAG, text)
+                }
+            }
+        })
+        root.addView(recRow)
+
         // One button per bundled example (assets/krapfen/examples/*.strudel).
         for (name in assets.list(EXAMPLES).orEmpty().filter { it.endsWith(".strudel") }.sorted()) {
             root.addView(Button(this).apply {

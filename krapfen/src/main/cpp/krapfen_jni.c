@@ -17,6 +17,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
@@ -96,6 +97,30 @@ static _Atomic float last_peak;
 // User volume (0..1+), on top of MASTER_GAIN.
 static _Atomic float volume = 1.0f;
 
+// --- output capture (debugging/analysis: Krapfen.startRecording) ---
+//
+// The audio callback copies its final output into a preallocated buffer.
+// It only ever try-locks capture_lock, so it never blocks; start/stop take
+// the lock to swap the buffer safely.
+static pthread_mutex_t capture_lock = PTHREAD_MUTEX_INITIALIZER;
+static float *capture_buf;
+static size_t capture_cap; // floats
+static size_t capture_len; // floats
+
+static void capture_block(const float *out, size_t n)
+{
+    if (pthread_mutex_trylock(&capture_lock) != 0)
+        return; // start/stop in progress; skip this block
+    if (capture_buf)
+    {
+        size_t room = capture_cap - capture_len;
+        size_t m = n < room ? n : room;
+        memcpy(capture_buf + capture_len, out, m * sizeof(float));
+        capture_len += m;
+    }
+    pthread_mutex_unlock(&capture_lock);
+}
+
 // Seconds on dough's timeline: the start time of the next block to be
 // rendered. Events must be timestamped on this clock.
 double krapfen_audio_time(void)
@@ -138,6 +163,7 @@ static void data_callback(ma_device *dev, void *output, const void *input, ma_ui
             peak = fabsf(v);
     }
     atomic_store_explicit(&last_peak, peak, memory_order_relaxed);
+    capture_block(out, frame_count * dev->playback.channels);
 }
 
 JNIEXPORT jint JNICALL
@@ -257,6 +283,48 @@ Java_dev_krapfen_Native_sampleRate(JNIEnv *env, jclass clazz)
     (void)env;
     (void)clazz;
     return (jint)atomic_load(&sample_rate);
+}
+
+// Starts capturing up to `seconds` of output (replacing any capture).
+JNIEXPORT jboolean JNICALL
+Java_dev_krapfen_Native_startCapture(JNIEnv *env, jclass clazz, jint seconds)
+{
+    (void)env;
+    (void)clazz;
+    uint32_t sr = atomic_load(&sample_rate);
+    if (sr == 0 || seconds <= 0)
+        return JNI_FALSE;
+    size_t cap = (size_t)seconds * sr * 2;
+    float *buf = malloc(cap * sizeof(float));
+    if (!buf)
+        return JNI_FALSE;
+    pthread_mutex_lock(&capture_lock);
+    free(capture_buf);
+    capture_buf = buf;
+    capture_cap = cap;
+    capture_len = 0;
+    pthread_mutex_unlock(&capture_lock);
+    return JNI_TRUE;
+}
+
+// Stops capturing and returns the interleaved stereo samples (or null).
+JNIEXPORT jfloatArray JNICALL
+Java_dev_krapfen_Native_stopCapture(JNIEnv *env, jclass clazz)
+{
+    (void)clazz;
+    pthread_mutex_lock(&capture_lock);
+    float *buf = capture_buf;
+    size_t len = capture_len;
+    capture_buf = NULL;
+    capture_cap = capture_len = 0;
+    pthread_mutex_unlock(&capture_lock);
+    if (!buf)
+        return NULL;
+    jfloatArray arr = (*env)->NewFloatArray(env, (jsize)len);
+    if (arr)
+        (*env)->SetFloatArrayRegion(env, arr, 0, (jsize)len, buf);
+    free(buf);
+    return arr;
 }
 
 JNIEXPORT void JNICALL
