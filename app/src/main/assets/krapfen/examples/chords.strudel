@@ -1,0 +1,7 @@
+// Scales, chord voicings and root notes with tonal.
+setcpm(90/4)
+$: chord("<Am7 Dm9 G13 C^7>").voicing().s("sawtooth")
+  .lpf(1200).attack(.05).release(.4).gain(.3).room(.4).roomsize(4)
+$: chord("<Am7 Dm9 G13 C^7>").rootNotes(2).s("sine").gain(.6)
+$: n("0 2 4 <6 7> 4 2".fast(2)).scale("<A:minor D:dorian G:mixolydian C:major>")
+  .s("triangle").decay(.15).sustain(0).gain(.4).delay(.3).delaytime(.25)

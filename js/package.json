@@ -9,7 +9,9 @@
     "test": "node build.mjs && $QJS test/smoke.js"
   },
   "dependencies": {
+    "@tonaljs/tonal": "^4.10.0",
     "acorn": "^8.14.0",
+    "chord-voicings": "^0.0.1",
     "escodegen": "^2.1.0",
     "estree-walker": "^3.0.3",
     "fraction.js": "^5.2.1"

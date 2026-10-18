@@ -19,6 +19,7 @@ import { runTimers } from './shims.mjs';
 import * as core from '@strudel/core';
 import * as mini from '@strudel/mini';
 import { transpiler } from '@strudel/transpiler';
+import * as tonal from '@strudel/tonal';
 import { samples, isSample, sampleParams, preload, hostDone, sampleStats } from './samples.mjs';
 
 const { repl, evalScope, Pattern, noteToMidi } = core;
@@ -223,7 +224,7 @@ const strudel = repl({
   clearInterval: (id) => clearInterval(id),
 });
 
-const ready = evalScope(core, mini, { samples });
+const ready = evalScope(core, mini, tonal, { samples });
 
 // Starts loading samples the next couple of cycles will need, so they are
 // ready when first scheduled.
